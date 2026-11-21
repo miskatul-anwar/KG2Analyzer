@@ -157,7 +157,9 @@ def build_text_representation(
     elif norm_u in ("unit_count", "mass_tonne", "mass_kg", "mass_g", "time_hours", "time_seconds", "volume_liters", "currency_usd", "currency_eur"):
         semantic_tags.append("tag_additive_unit")
 
-    tag_str = " ".join(set(semantic_tags))
+    # sorted, not set order: set order follows the per-process hash seed and the model uses
+    # bigrams, so an unsorted join made the same measure flip between additive and non-additive.
+    tag_str = " ".join(sorted(set(semantic_tags)))
 
     domain_str = ""
     if domain_class and not _isna(domain_class):

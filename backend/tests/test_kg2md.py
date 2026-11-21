@@ -77,3 +77,19 @@ def test_northwind_product_to_category_rollup_matches_relational_ground_truth():
                       "Meat/Poultry": Decimal("388.00"), "Produce": Decimal("342.00"),
                       "Seafood": Decimal("471.20")}
     assert sum(totals.values()) == Decimal("4607.89")
+
+
+def test_measure_classification_is_deterministic_across_processes():
+    """Same KG, same MDKG: additivity must not depend on Python's per-process hash seed."""
+    import os
+    import subprocess
+    import sys
+
+    code = ("import warnings; warnings.filterwarnings('ignore');"
+            "from kg2analyzer.kg2md.measures import MeasureClassifier;"
+            "d = MeasureClassifier().classify('unitPrice', 'xsd:decimal', 'USD', False, explain=False);"
+            "print(d.additivity, d.aggregate)")
+    outs = {subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                           env={**os.environ, "PYTHONHASHSEED": str(seed)}).stdout.strip() for seed in range(6)}
+    # a unit price is an intensive (non-additive) measure: thesis section 1.2
+    assert outs == {"non-additive avg"}
