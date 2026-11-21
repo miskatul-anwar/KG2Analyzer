@@ -1,0 +1,17 @@
+[project]
+name = "kg2analyzer"
+version = "1.0.0"
+description = "Multidimensional analytics and natural-language querying across knowledge graphs"
+requires-python = ">=3.10"
+dependencies = ["rdflib>=7.1", "networkx>=3.3", "numpy", "scipy", "scikit-learn", "joblib",
+                "fastapi", "uvicorn", "python-multipart", "httpx"]
+
+[project.scripts]
+kg2analyzer = "kg2analyzer.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["kg2analyzer*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning"]

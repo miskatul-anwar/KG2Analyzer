@@ -1,0 +1,3 @@
+# Deterministic grounded parser as offline default and post-retry fallback
+
+The thesis runs Qwen2.5-Coder:3b via Ollama and, after two failed attempts, falls back to an identity template only. KG2Analyzer keeps the LLM path (Ollama or any OpenAI-compatible server, chosen by `KG2A_TRANSLATOR`). It generalises the fallback into a grounded parser that maps intents (aggregate, roll-up level, member slice, top-N, identity join, conformed-date join) onto catalogue vocabulary. That way the app works without a model and can never hallucinate in fallback. Every draft from either path still passes the same four validation rules.

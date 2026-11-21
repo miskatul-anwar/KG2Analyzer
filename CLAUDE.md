@@ -1,0 +1,46 @@
+# KG2Analyzer
+
+Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/` (React 19 + TypeScript + Vite + Tailwind v4).
+
+## Backend (`backend/`)
+
+- `KG2Analyzer` in `kg2analyzer/analyzer.py` is the one entry point; `server.py`, `__main__.py` and the tests all go through it.
+  - Phase I `kg2md/` (profiling + Otsu, measures + SHAP/LIME, ADW4 hierarchies, QB4OLAP pipeline)
+  - Phase II `store.py`, `catalog.py`, `planner.py`, `olap.py`; graph analytics `graphml.py`, `linking.py`
+  - Phase III `nl/` (validator, translators, interface)
+  - `benchmark/` generates the raw benchmark KGs; `benchmark/evaluate.py` reproduces the thesis tables
+- `models/*.joblib` are the trained measure classifiers; `kg2md/features.py` must stay byte-compatible with how they were trained.
+- `server.py` serves `frontend/dist` (SPA fallback) when it exists.
+
+## Frontend (`frontend/`)
+
+- `src/api/client.ts` holds the typed API surface: change it together with `server.py`.
+- Data fetching goes through TanStack Query (`src/api/hooks.ts`); after a mutation that changes the store, call `useRefreshStore()`.
+- Colours are semantic tokens in `src/index.css` (`bg-surface`, `text-ink-2`, series `--s1..--s8`); never hard-code hex in components. Categorical series follow the fixed palette order.
+
+## Commands
+
+- Backend tests: `cd backend && python -m pytest -q` (all must pass before committing)
+- Frontend checks: `cd frontend && npm run typecheck && npm run build`
+- Dev: `cd backend && python -m kg2analyzer serve --benchmark enterprise`, then `cd frontend && npm run dev`
+- Thesis tables: `cd backend && python -m kg2analyzer evaluate`
+
+## Conventions
+
+- Test only at the agreed seams (the `KG2Analyzer`, `run_kg2md`, `otsu_threshold` and HTTP interfaces). Expected values come from the thesis, never recomputed by the code under test.
+- Use `GLOSSARY.md` terms in code, UI copy, tests and issues.
+- The store is read-only to every query path; never add an update route.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for `miskatul-anwar/KG2Analyzer` (use `gh api` REST routes in cloud sessions). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

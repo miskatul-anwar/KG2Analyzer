@@ -1,0 +1,11 @@
+rdflib>=7.1
+networkx>=3.3
+numpy
+scipy
+scikit-learn
+joblib
+fastapi
+uvicorn
+python-multipart
+httpx
+pytest

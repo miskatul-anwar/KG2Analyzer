@@ -1,0 +1,3 @@
+# React SPA built with Vite, served by FastAPI in production
+
+The UI is a React 19 + TypeScript single-page app (Vite, Tailwind v4, TanStack Query) in `frontend/`. In development Vite proxies `/api` and `/sparql` to FastAPI. In production FastAPI serves `frontend/dist` itself, with an SPA fallback for client-side routes, so the app deploys as one process or container with no CORS and no separate web server. The typed client in `frontend/src/api/client.ts` mirrors `server.py` by hand rather than being generated from OpenAPI, which keeps the build free of a codegen step; the two must change together.

@@ -1,0 +1,68 @@
+"""HTTP seam: the JSON API and the SPARQL 1.1 Protocol endpoint, incl. federating to a remote endpoint."""
+import pytest
+from fastapi.testclient import TestClient
+
+from kg2analyzer import server
+
+
+@pytest.fixture(scope="module")
+def client():
+    c = TestClient(server.app)
+    assert c.post("/api/benchmark", json={"which": "enterprise"}).status_code == 200
+    return c
+
+
+def test_status_and_catalog_report_the_seven_cubes(client):
+    assert client.get("/api/status").json()["cubes"] == 7
+    cat = client.get("/api/catalog").json()
+    assert "Retail:saleTotalAmount" in cat["prompt_context"]
+
+
+def test_ask_endpoint_answers_alex(client):
+    r = client.post("/api/ask", json={"question": "Show total retail sales and investment trade volume for our shared corporate clients"}).json()
+    alice = next(x for x in r["rows"] if x["left_entity"].endswith("cust_1001"))
+    assert alice["left_total"] == pytest.approx(1499.70) and alice["right_total"] == pytest.approx(52620.00)
+
+
+def test_sparql_protocol_endpoint_rejects_updates_and_serves_selects(client):
+    assert client.post("/sparql", data={"query": "DROP ALL"}).status_code == 403
+    r = client.get("/sparql/retail", params={"query": "SELECT (COUNT(*) AS ?n) WHERE { GRAPH ?g { ?s ?p ?o } }"})
+    assert r.headers["content-type"].startswith("application/sparql-results+json")
+    assert int(r.json()["results"]["bindings"][0]["n"]["value"]) > 0
+
+
+def test_upload_runs_kg2md_on_a_user_kg(client):
+    ttl = b"""@prefix ex: <http://example.org/shop#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+    ex:o1 a ex:Order ; ex:buyer ex:c1 ; ex:total "10.5"^^xsd:decimal ; ex:items 2 .
+    ex:o2 a ex:Order ; ex:buyer ex:c2 ; ex:total "4.0"^^xsd:decimal ; ex:items 1 .
+    ex:o3 a ex:Order ; ex:buyer ex:c1 ; ex:total "7.0"^^xsd:decimal ; ex:items 3 .
+    ex:c1 a ex:Client ; ex:city ex:dhaka . ex:c2 a ex:Client ; ex:city ex:ctg .
+    ex:dhaka a ex:City . ex:ctg a ex:City ."""
+    r = client.post("/api/kgs", data={"name": "shop"}, files={"file": ("shop.ttl", ttl, "text/turtle")})
+    assert r.status_code == 200, r.text
+    cube = r.json()["cubes"][0]
+    assert cube["fact_class"].endswith("#Order") and cube["audit"]["observations"] == 3
+    ol = client.post("/api/olap", json={"kg": "shop", "measure": "total", "group_by": [["buyer", None]]}).json()
+    assert sorted(x["total"] for x in ol["rows"]) == [4.0, 17.5]
+    client.delete("/api/kgs/shop")
+
+
+def test_federation_over_http_to_a_remote_kg2analyzer(client, monkeypatch):
+    """Attach this server's own /sparql/finance as a *remote* source and run the pushdown join federated."""
+    import httpx
+
+    from kg2analyzer.analyzer import KG2Analyzer
+    from kg2analyzer.benchmark.enterprise import build_enterprise_benchmark
+
+    def post(url, data=None, timeout=None, headers=None):
+        return client.post(url.replace("http://testserver", ""), data=data, headers=headers)
+
+    monkeypatch.setattr(httpx, "post", post)
+    bm = build_enterprise_benchmark()
+    az = KG2Analyzer(translator="rules")
+    az.load_kg("retail", bm.graphs["retail"])
+    az.attach_remote("finance", "http://testserver/sparql/finance")
+    az.load_identity(bm.identity)
+    res = az.cross_cube(("retail", "customer", "saleTotalAmount"), ("finance", "trader", "tradeAmount"), mode="federated")
+    alice = next(x for x in res.rows if x["left_entity"].endswith("cust_1001"))
+    assert float(alice["right_total"]) == pytest.approx(52620.00)
