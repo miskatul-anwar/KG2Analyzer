@@ -17,22 +17,43 @@ KG2Analyzer turns raw RDF/OWL knowledge graphs into QB4OLAP cubes and hosts them
 
 Python tooling is [uv](https://docs.astral.sh/uv/): `backend/pyproject.toml` + `backend/uv.lock` pin everything (Python 3.12 via `.python-version`).
 
-**Development** (hot reload; Vite proxies `/api` and `/sparql` to FastAPI):
+**Input: a set of knowledge graphs. Output: one MDKG per KG, an identity graph linking them, and every analysis.**
+Give it any mix of:
 
-```bash
-cd backend && uv sync && uv run kg2analyzer serve --benchmark enterprise
-```
-```bash
-cd frontend && npm install && npm run dev        # http://localhost:5173
-```
+| Shape | Example | Becomes KG |
+|---|---|---|
+| one file per KG | `retail.ttl` | `retail` |
+| TBox + ABox pair | `energy_tbox.nt` + `energy_abox.nt` | `energy` |
+| one folder per KG | `finance/TBox.ttl` + `finance/ABox.ttl` | `finance` |
+| zip archive of the above | `kgs.zip` | one KG per folder (or the zip's name) |
+| owl:sameAs file (optional) | `links.ttl` | added to the identity graph |
 
-**Production** (FastAPI serves the built UI at http://127.0.0.1:8000):
+Formats: Turtle, N-Triples, RDF/XML, OWL, JSON-LD, N-Quads, TriG. Identity links between the KGs are discovered automatically (score ≥ 0.6; `--no-link` to skip).
+
+**Web app**, preloaded with your KGs (or drop them on the Workspace page):
 
 ```bash
 cd frontend && npm ci && npm run build
 ```
 ```bash
-cd backend && uv run kg2analyzer serve --benchmark enterprise
+cd backend && uv sync && uv run kg2analyzer serve --kgs /path/to/my_kgs
+```
+
+Open http://127.0.0.1:8000. Try it without your own data: `uv run kg2analyzer benchmark --out demo_kgs` writes 7 raw demo KGs, or start with `--benchmark enterprise`.
+
+**Batch / CLI** (no UI), writing one `<kg>.mdkg.trig` per KG plus `identity.ttl` and `report.json`:
+
+```bash
+cd backend && uv run kg2analyzer build /path/to/my_kgs --out mdkg
+```
+```bash
+cd backend && uv run kg2analyzer ask "Total sales by product category" --kgs /path/to/my_kgs
+```
+
+**UI development** (hot reload; Vite proxies `/api` and `/sparql` to the backend on :8000):
+
+```bash
+cd frontend && npm install && npm run dev        # http://localhost:5173
 ```
 
 **Docker**:
@@ -47,7 +68,7 @@ docker build -t kg2analyzer . && docker run -p 8000:8000 kg2analyzer
 ollama pull qwen2.5-coder:3b
 ```
 ```bash
-cd backend && KG2A_TRANSLATOR=ollama uv run kg2analyzer serve --benchmark enterprise
+cd backend && KG2A_TRANSLATOR=ollama uv run kg2analyzer serve --kgs /path/to/my_kgs
 ```
 
 ## Developer API
@@ -57,9 +78,8 @@ cd backend && KG2A_TRANSLATOR=ollama uv run kg2analyzer serve --benchmark enterp
 from kg2analyzer.analyzer import KG2Analyzer
 
 az = KG2Analyzer()
-az.load_kg("sales", "sales.ttl")            # runs KG2MD
-az.load_kg("finance", "finance.ttl")
-az.discover_links("sales", "finance")      # candidates → az.add_links([...])
+report = az.ingest_paths(["my_kgs/"])      # every KG -> MDKG, identity links discovered
+az.mdkg_trig("sales")                      # one MDKG as TriG (schema + observation graphs)
 az.cross_cube(("sales", "customer", "amount"), ("finance", "trader", "tradeAmount"))   # pushdown
 az.olap("sales", "amount", group_by=[("product", "Category")])
 az.communities("identity", "louvain")

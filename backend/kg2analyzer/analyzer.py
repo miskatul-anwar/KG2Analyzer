@@ -21,6 +21,7 @@ from rdflib.namespace import OWL
 from kg2analyzer import planner
 from kg2analyzer.catalog import Catalog
 from kg2analyzer.graphml import detect_communities, entity_graph
+from kg2analyzer.ingest import RdfFile, group, read_paths
 from kg2analyzer.kg2md.measures import MeasureClassifier
 from kg2analyzer.kg2md.pipeline import KG2MDResult, run_kg2md
 from kg2analyzer.kg2md.profiling import local_name
@@ -44,6 +45,7 @@ class KG2Analyzer:
         self._catalog: Catalog | None = None
         self._translator_spec = translator
         self._nl: NLInterface | None = None
+        self.last_report: dict = {}
 
     # ---------------------------------------------------------------- loading / Phase I
     @property
@@ -68,6 +70,86 @@ class KG2Analyzer:
         self.store.put(name, data_graph(name), res.data)
         self._invalidate()
         return res
+
+    # ---------------------------------------------------------------- batch pipeline
+    def ingest(self, files: list[RdfFile], auto_link: bool = True, link_threshold: float = 0.6,
+               reset: bool = False, max_facts: int | None = None) -> dict:
+        """A delivery of raw KGs -> one MDKG per KG -> identity graph (supplied and/or discovered).
+
+        ``files`` may mix single-file KGs, TBox/ABox pairs, per-KG folders, zip archives and
+        owl:sameAs files (see ``kg2analyzer.ingest``). Returns a JSON-ready pipeline report.
+        """
+        t0 = time.perf_counter()
+        kgs, identity_files = group(files)
+        if not kgs:
+            raise ValueError("no RDF knowledge graphs found in the upload")
+        if reset:
+            for kg in list(self.store.sources):
+                self.remove_kg(kg)
+            self.store.identity.remove((None, None, None))
+        t_parse = time.perf_counter()
+        report_kgs = []
+        for name, (g, paths) in kgs.items():
+            res = self.load_kg(name, g, max_facts=max_facts)
+            report_kgs.append({
+                "kg": name, "files": paths, "triples": len(g), "otsu_threshold": round(res.selection.threshold, 4),
+                "classes": len(res.profiles),
+                "cubes": [{"fact_class": local_name(c.fact_class), "dataset": str(c.dataset),
+                           "observations": c.observations, "measures": len(c.measures), "dimensions": len(c.dimensions),
+                           "fact_preservation": c.audit["fact_preservation"], "measure_fidelity": c.audit["measure_fidelity"]}
+                          for c in res.cubes],
+            })
+        t_mdkg = time.perf_counter()
+        supplied = sum(self.load_identity(g) for _, g in identity_files)
+        pairs, added = [], 0
+        if auto_link:
+            names = sorted(self.results)
+            for i, a in enumerate(names):
+                for b in names[i + 1:]:
+                    out = self.discover_links(a, b, threshold=link_threshold)
+                    new = [(c["left"], c["right"]) for c in out["candidates"] if c["score"] >= link_threshold and not c["known"]]
+                    self.add_links(new)
+                    added += len(new)
+                    if new:
+                        pairs.append({"kg_a": a, "kg_b": b, "links": [
+                            {"left": c["left"], "right": c["right"], "left_label": c["left_label"],
+                             "right_label": c["right_label"], "score": c["score"]}
+                            for c in out["candidates"] if (c["left"], c["right"]) in new]})
+        t_link = time.perf_counter()
+        self.last_report = {
+            "kgs": report_kgs,
+            "identity": {"supplied_files": [p for p, _ in identity_files], "supplied_links": supplied,
+                         "auto_link": auto_link, "threshold": link_threshold, "links_added": added, "pairs": pairs,
+                         "clusters": len(set(self.store.identity_clusters().values()))},
+            "named_graphs": len([g for g in self.store.graph_stats() if g["triples"]]),
+            "seconds": {"parse": round(t_parse - t0, 3), "kg2md": round(t_mdkg - t_parse, 3),
+                        "linking": round(t_link - t_mdkg, 3), "total": round(t_link - t0, 3)},
+        }
+        return self.last_report
+
+    def ingest_paths(self, paths: list[str | Path], **kw) -> dict:
+        """``ingest`` from files, folders or zip archives on disk."""
+        return self.ingest(read_paths(paths), **kw)
+
+    def mdkg_trig(self, kg: str) -> str:
+        """One KG's MDKG (QB4OLAP schema graph + observation graph) as TriG."""
+        ep = self.store.sources.get(kg)
+        if ep is None or not hasattr(ep, "dataset"):
+            raise KeyError(f"no local MDKG for {kg!r}")
+        return ep.dataset.serialize(format="trig")
+
+    def mdkg_zip(self) -> bytes:
+        """All MDKGs (one TriG each), the identity graph and the last pipeline report, zipped."""
+        import json
+        import zipfile
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for kg in self.results:
+                z.writestr(f"{kg}.mdkg.trig", self.mdkg_trig(kg))
+            z.writestr("identity.ttl", self.store.identity.serialize(format="turtle"))
+            z.writestr("report.json", json.dumps(getattr(self, "last_report", {}) or {}, indent=2, default=str))
+        return buf.getvalue()
 
     def attach_remote(self, name: str, url: str) -> None:
         """Register a remote SPARQL endpoint as a federated source (its schema graph must follow KG2MD's layout)."""

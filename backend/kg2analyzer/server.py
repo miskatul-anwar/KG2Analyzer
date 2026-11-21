@@ -295,6 +295,37 @@ async def sparql_source(kg: str, request: Request):
     return await _protocol(request, kg)
 
 
+# ------------------------------------------------------------------ batch pipeline: KGs -> MDKGs
+@app.post("/api/pipeline")
+async def pipeline(files: list[UploadFile] = File(...), auto_link: bool = Form(True), threshold: float = Form(0.6),
+                   reset: bool = Form(True), max_facts: int | None = Form(None)):
+    """Upload a set of raw KGs (files, TBox/ABox pairs, zips, owl:sameAs files): build every MDKG and link them."""
+    from kg2analyzer.ingest import RdfFile
+
+    batch = [RdfFile(f.filename or "kg.ttl", await f.read()) for f in files]
+    return guarded(lambda: ok(AZ.ingest(batch, auto_link=auto_link, link_threshold=threshold, reset=reset,
+                                        max_facts=max_facts or None)))
+
+
+@app.get("/api/pipeline/report")
+def pipeline_report():
+    return guarded(lambda: ok(AZ.last_report))
+
+
+@app.get("/api/kgs/{kg}/mdkg.trig")
+def mdkg_trig(kg: str):
+    return guarded(lambda: PlainTextResponse(AZ.mdkg_trig(kg), media_type="application/trig",
+                                             headers={"Content-Disposition": f'attachment; filename="{kg}.mdkg.trig"'}))
+
+
+@app.get("/api/mdkg.zip")
+def mdkg_zip():
+    from fastapi.responses import Response
+
+    return guarded(lambda: Response(AZ.mdkg_zip(), media_type="application/zip",
+                                    headers={"Content-Disposition": 'attachment; filename="mdkg.zip"'}))
+
+
 # ------------------------------------------------------------------ React single-page app
 if (WEB_DIST / "index.html").exists():
     app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")

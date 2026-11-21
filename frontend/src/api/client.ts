@@ -96,6 +96,19 @@ export interface EvalReport {
   };
 }
 
+export interface PipelineReport {
+  kgs: {
+    kg: string; files: string[]; triples: number; otsu_threshold: number; classes: number;
+    cubes: { fact_class: string; dataset: string; observations: number; measures: number; dimensions: number; fact_preservation: number; measure_fidelity: number }[];
+  }[];
+  identity: {
+    supplied_files: string[]; supplied_links: number; auto_link: boolean; threshold: number; links_added: number; clusters: number;
+    pairs: { kg_a: string; kg_b: string; links: { left: string; right: string; left_label: string | null; right_label: string | null; score: number }[] }[];
+  };
+  named_graphs: number;
+  seconds: { parse: number; kg2md: number; linking: number; total: number };
+}
+
 export class ApiError extends Error {}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -114,6 +127,8 @@ export const api = {
   status: () => request<Status>("/api/status"),
   catalog: () => request<Catalog>("/api/catalog"),
   loadBenchmark: (which: "enterprise" | "northwind") => post<{ seconds: number }>("/api/benchmark", { which, reset: true }),
+  pipeline: (form: FormData) => request<PipelineReport>("/api/pipeline", { method: "POST", body: form }),
+  pipelineReport: () => request<PipelineReport | Record<string, never>>("/api/pipeline/report"),
   uploadKg: (form: FormData) => request<Phase1Report>("/api/kgs", { method: "POST", body: form }),
   deleteKg: (kg: string) => request<{ removed: string }>(`/api/kgs/${encodeURIComponent(kg)}`, { method: "DELETE" }),
   uploadIdentity: (form: FormData) => request<{ links_added: number }>("/api/identity", { method: "POST", body: form }),

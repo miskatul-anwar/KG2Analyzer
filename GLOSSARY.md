@@ -40,7 +40,15 @@ One of the ADW4 patterns: balanced, recursive, ragged, alternative, parallel, no
 
 **Cube**:
 A materialised QB4OLAP dataset: observations, measures, dimensions and hierarchies of one fact class.
-_Avoid_: MDKG (use for the whole output), data cube
+_Avoid_: data cube
+
+**MDKG**:
+The multidimensional knowledge graph built from one raw KG: its QB4OLAP schema graph plus its observation graph, holding one cube per fact class.
+_Avoid_: output graph, cube (a cube is one fact class inside an MDKG)
+
+**Delivery**:
+The set of input files handed to the pipeline; it is grouped into raw KGs (one file, a TBox/ABox pair, a folder, or a zip) plus optional identity files.
+_Avoid_: upload, batch
 
 ### Phase II: Multi-KG store
 

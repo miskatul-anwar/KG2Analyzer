@@ -129,10 +129,19 @@ def discover_links(G: nx.Graph, kg_a: str, kg_b: str, known: set[tuple[str, str]
 
 
 def evaluate(cands: list[LinkCandidate], gold: set[tuple[str, str]], threshold: float = 0.5) -> dict:
-    pred = {(c.left, c.right) for c in cands if c.score >= threshold}
-    gold_sym = gold | {(b, a) for a, b in gold}
-    tp = len({p for p in pred if p in gold_sym})
-    relevant = gold
+    """Precision/recall against the *transitive closure* of the gold links.
+
+    owl:sameAs is transitive: with gold a=b and b=c, predicting a=c is correct, not a false positive.
+    """
+    import networkx as nx
+
+    G = nx.Graph()
+    G.add_edges_from(gold)
+    closure = {frozenset((x, y)) for comp in nx.connected_components(G) for x in comp for y in comp if x < y}
+    nodes = {c.left for c in cands} | {c.right for c in cands}
+    pred = {frozenset((c.left, c.right)) for c in cands if c.score >= threshold}
+    tp = len(pred & closure)
+    relevant = {p for p in closure if p <= nodes}  # gold pairs between the two KGs that were compared
     precision = tp / len(pred) if pred else 0.0
     recall = tp / len(relevant) if relevant else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0

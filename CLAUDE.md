@@ -9,7 +9,8 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
   - Phase II `store.py`, `catalog.py`, `planner.py`, `olap.py`; graph analytics `graphml.py`, `linking.py`
   - Phase III `nl/` (validator, translators, interface)
   - `benchmark/` generates the raw benchmark KGs; `benchmark/evaluate.py` reproduces the thesis tables
-- `models/*.joblib` are the trained measure classifiers; `kg2md/features.py` must stay byte-compatible with how they were trained.
+- `models/*.joblib` are the trained measure classifiers; `kg2md/features.py` must stay compatible with how they were trained (keep its tag join sorted: unsorted set order made results depend on the hash seed).
+- Input is a *set* of raw KGs: `ingest.py` groups files (single files, TBox/ABox pairs, per-KG folders, zips, owl:sameAs files) and `KG2Analyzer.ingest` builds one MDKG per KG and auto-links them.
 - `server.py` serves `frontend/dist` (SPA fallback) when it exists.
 
 ## Frontend (`frontend/`)
@@ -25,12 +26,13 @@ Python is managed with **uv** (never pip): add dependencies with `uv add <pkg>` 
 - Backend setup: `cd backend && uv sync`
 - Backend tests: `cd backend && uv run pytest -q` (all must pass before committing)
 - Frontend checks: `cd frontend && npm run typecheck && npm run build`
-- Dev: `cd backend && uv run kg2analyzer serve --benchmark enterprise`, then `cd frontend && npm run dev`
+- Build MDKGs: `cd backend && uv run kg2analyzer build <kgs...> --out mdkg`
+- Dev: `cd backend && uv run kg2analyzer serve --kgs <kgs...>` (or `--benchmark enterprise`), then `cd frontend && npm run dev`
 - Thesis tables: `cd backend && uv run kg2analyzer evaluate`
 
 ## Conventions
 
-- Test only at the agreed seams (the `KG2Analyzer`, `run_kg2md`, `otsu_threshold` and HTTP interfaces). Expected values come from the thesis, never recomputed by the code under test.
+- Test only at the agreed seams (the `KG2Analyzer` incl. `ingest`, `run_kg2md`, `otsu_threshold` and HTTP interfaces). Expected values come from the thesis, never recomputed by the code under test.
 - Use `GLOSSARY.md` terms in code, UI copy, tests and issues.
 - The store is read-only to every query path; never add an update route.
 
