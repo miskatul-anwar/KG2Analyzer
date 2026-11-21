@@ -1,6 +1,6 @@
 """FastAPI server: JSON API for the web UI and developers, plus SPARQL 1.1 Protocol endpoints.
 
-    uvicorn kg2analyzer.server:app --port 8000      (or: python -m kg2analyzer serve)
+    uv run kg2analyzer serve --port 8000          (or: uv run uvicorn kg2analyzer.server:app)
 
 ``/sparql`` (integrated) and ``/sparql/{kg}`` (one source) speak the SPARQL
 1.1 Protocol, so another KG2Analyzer can attach this one as a federated remote.

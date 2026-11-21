@@ -20,10 +20,13 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
 
 ## Commands
 
-- Backend tests: `cd backend && python -m pytest -q` (all must pass before committing)
+Python is managed with **uv** (never pip): add dependencies with `uv add <pkg>` (dev: `uv add --dev <pkg>`) and commit `uv.lock`.
+
+- Backend setup: `cd backend && uv sync`
+- Backend tests: `cd backend && uv run pytest -q` (all must pass before committing)
 - Frontend checks: `cd frontend && npm run typecheck && npm run build`
-- Dev: `cd backend && python -m kg2analyzer serve --benchmark enterprise`, then `cd frontend && npm run dev`
-- Thesis tables: `cd backend && python -m kg2analyzer evaluate`
+- Dev: `cd backend && uv run kg2analyzer serve --benchmark enterprise`, then `cd frontend && npm run dev`
+- Thesis tables: `cd backend && uv run kg2analyzer evaluate`
 
 ## Conventions
 

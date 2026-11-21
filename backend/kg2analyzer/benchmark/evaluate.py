@@ -1,7 +1,7 @@
 """Reproduce the thesis' results tables from the running system.
 
-    python -m kg2analyzer.benchmark.evaluate            # deterministic grounded parser
-    KG2A_TRANSLATOR=ollama python -m kg2analyzer.benchmark.evaluate   # local LLM (qwen2.5-coder:3b)
+    uv run kg2analyzer evaluate                          # deterministic grounded parser
+    KG2A_TRANSLATOR=ollama uv run kg2analyzer evaluate   # local LLM (qwen2.5-coder:3b)
 """
 from __future__ import annotations
 

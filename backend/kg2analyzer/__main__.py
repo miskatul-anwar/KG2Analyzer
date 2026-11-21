@@ -1,4 +1,4 @@
-"""Command line: python -m kg2analyzer {serve,evaluate,materialize,ask}."""
+"""Command line: uv run kg2analyzer {serve,evaluate,materialize,ask}."""
 from __future__ import annotations
 
 import argparse

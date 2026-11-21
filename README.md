@@ -4,7 +4,7 @@
 
 KG2Analyzer turns raw RDF/OWL knowledge graphs into QB4OLAP cubes and hosts them as source-aware named graphs. You can analyse them across KGs, physically integrated or federated, without the Cartesian multiplication trap, from a React dashboard, a typed REST API, SPARQL endpoints, or plain-English questions.
 
-**Stack:** React 19 · TypeScript · Vite · Tailwind CSS v4 · TanStack Query · React Router · Recharts · react-force-graph on the frontend; FastAPI · RDFLib · NetworkX · scikit-learn on the backend.
+**Stack:** React 19 · TypeScript · Vite · Tailwind CSS v4 · TanStack Query · React Router · Recharts · react-force-graph on the frontend; FastAPI · RDFLib · NetworkX · scikit-learn on the backend, managed with uv.
 
 | Thesis phase | What it does | Where |
 |---|---|---|
@@ -15,10 +15,12 @@ KG2Analyzer turns raw RDF/OWL knowledge graphs into QB4OLAP cubes and hosts them
 
 ## Run it
 
+Python tooling is [uv](https://docs.astral.sh/uv/): `backend/pyproject.toml` + `backend/uv.lock` pin everything (Python 3.12 via `.python-version`).
+
 **Development** (hot reload; Vite proxies `/api` and `/sparql` to FastAPI):
 
 ```bash
-cd backend && pip install -r requirements.txt && python -m kg2analyzer serve --benchmark enterprise
+cd backend && uv sync && uv run kg2analyzer serve --benchmark enterprise
 ```
 ```bash
 cd frontend && npm install && npm run dev        # http://localhost:5173
@@ -30,7 +32,7 @@ cd frontend && npm install && npm run dev        # http://localhost:5173
 cd frontend && npm ci && npm run build
 ```
 ```bash
-cd backend && python -m kg2analyzer serve --benchmark enterprise
+cd backend && uv run kg2analyzer serve --benchmark enterprise
 ```
 
 **Docker**:
@@ -45,12 +47,13 @@ docker build -t kg2analyzer . && docker run -p 8000:8000 kg2analyzer
 ollama pull qwen2.5-coder:3b
 ```
 ```bash
-cd backend && KG2A_TRANSLATOR=ollama python -m kg2analyzer serve --benchmark enterprise
+cd backend && KG2A_TRANSLATOR=ollama uv run kg2analyzer serve --benchmark enterprise
 ```
 
 ## Developer API
 
 ```python
+# cd backend && uv run python
 from kg2analyzer.analyzer import KG2Analyzer
 
 az = KG2Analyzer()
@@ -67,7 +70,7 @@ REST docs are at `/docs`. `/sparql` and `/sparql/{kg}` implement the SPARQL 1.1 
 
 ## Reproducing the thesis results
 
-Run `python -m kg2analyzer evaluate` in `backend/`, or use the **Evaluate** page. On the enterprise benchmark:
+Run `uv run kg2analyzer evaluate` in `backend/`, or use the **Evaluate** page. On the enterprise benchmark:
 
 | Result | Value |
 |---|---|
