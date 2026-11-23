@@ -8,7 +8,6 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
   - Phase I `kg2md/` (profiling + Otsu, measures + SHAP/LIME, ADW4 hierarchies, QB4OLAP pipeline)
   - Phase II `store.py`, `catalog.py`, `planner.py`, `olap.py`; graph analytics `graphml.py`, `linking.py`
   - Phase III `nl/` (validator, translators, interface)
-  - `benchmark/` generates the raw benchmark KGs; `benchmark/evaluate.py` reproduces the thesis tables
 - `models/*.joblib` are the trained measure classifiers; `kg2md/features.py` must stay compatible with how they were trained (keep its tag join sorted: unsorted set order made results depend on the hash seed).
 - Input is a *set* of raw KGs: `ingest.py` groups files (single files, TBox/ABox pairs, per-KG folders, zips, owl:sameAs files) and `KG2Analyzer.ingest` builds one MDKG per KG and auto-links them.
 - `server.py` serves `frontend/dist` (SPA fallback) when it exists.
@@ -27,14 +26,16 @@ Python is managed with **uv** (never pip): add dependencies with `uv add <pkg>` 
 - Backend tests: `cd backend && uv run pytest -q` (all must pass before committing)
 - Frontend checks: `cd frontend && npm run typecheck && npm run build`
 - Build MDKGs: `cd backend && uv run kg2analyzer build <kgs...> --out mdkg`
-- Dev: `cd backend && uv run kg2analyzer serve --kgs <kgs...>` (or `--benchmark enterprise`), then `cd frontend && npm run dev`
-- Thesis tables: `cd backend && uv run kg2analyzer evaluate`
+- Dev: `cd backend && uv run kg2analyzer serve --kgs <kgs...>` (starts empty without `--kgs`), then `cd frontend && npm run dev`
+- Thesis tables: `cd backend && uv run pytest tests/test_thesis_tables.py -q`
 
 ## Conventions
 
 - Test only at the agreed seams (the `KG2Analyzer` incl. `ingest`, `run_kg2md`, `otsu_threshold` and HTTP interfaces). Expected values come from the thesis, never recomputed by the code under test.
 - Use `GLOSSARY.md` terms in code, UI copy, tests and issues.
 - The store is read-only to every query path; never add an update route.
+- The app ships no sample or placeholder KGs: benchmark KGs are test fixtures only (`backend/tests/fixtures/`), and UI defaults and example questions come from the loaded catalogue (`/api/suggestions`).
+- Build paths with `fileURLToPath` / `pathlib`, never `URL.pathname`: the app must run on Windows.
 
 ## Agent skills
 

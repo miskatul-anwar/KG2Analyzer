@@ -1,4 +1,4 @@
-"""Seven-domain Enterprise Reference Benchmark (thesis section 3.3.2).
+"""Test fixture: the seven-domain Enterprise Reference Benchmark (thesis section 3.3.2).
 
 Generates one *raw* domain knowledge graph per domain (Retail, Logistics,
 Healthcare, Energy, Finance, Smart Building, Supply Chain) plus the inter-KG

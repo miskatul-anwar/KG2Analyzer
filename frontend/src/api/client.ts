@@ -84,18 +84,6 @@ export interface Answer {
 
 export interface SparqlResult { columns: string[]; rows: Row[]; seconds: number }
 
-export interface EvalReport {
-  load_seconds: number;
-  domain_telemetry: { domain: string; fact_class: string; fact_score: number; otsu_tau: number; observations: number; measures: number; fact_preservation: number; measure_fidelity: number }[];
-  query23: Record<string, Record<string, { retail: string; finance: string } | number>>;
-  identity_communities: { count: number; sizes: number[]; modularity: number };
-  nl_benchmark: {
-    translator: string; questions: number; model_generated_executed: number; fallback_executed: number; rejected: number;
-    execution_rate: number; correct_outcome_rate: number; mean_latency_seconds: number;
-    outcomes: { id: string; question: string; expected: string; status: string; rows: number; correct_outcome: boolean; seconds: number }[];
-  };
-}
-
 export interface PipelineReport {
   kgs: {
     kg: string; files: string[]; triples: number; otsu_threshold: number; classes: number;
@@ -126,7 +114,6 @@ const post = <T>(path: string, body: unknown) =>
 export const api = {
   status: () => request<Status>("/api/status"),
   catalog: () => request<Catalog>("/api/catalog"),
-  loadBenchmark: (which: "enterprise" | "northwind") => post<{ seconds: number }>("/api/benchmark", { which, reset: true }),
   pipeline: (form: FormData) => request<PipelineReport>("/api/pipeline", { method: "POST", body: form }),
   pipelineReport: () => request<PipelineReport | Record<string, never>>("/api/pipeline/report"),
   uploadKg: (form: FormData) => request<Phase1Report>("/api/kgs", { method: "POST", body: form }),
@@ -142,7 +129,7 @@ export const api = {
   discover: (body: { kg_a: string; kg_b: string; threshold: number }) => post<DiscoverResult>("/api/links/discover", body),
   addLinks: (pairs: [string, string][]) => post<{ links_added: number }>("/api/links", { pairs }),
   ask: (question: string) => post<Answer>("/api/ask", { question }),
+  suggestions: () => request<{ questions: string[] }>("/api/suggestions"),
   setTranslator: (spec: string) => post<{ translator: string }>("/api/translator", { spec }),
   sparql: (query: string, kg: string | null) => post<SparqlResult>("/api/sparql", { query, kg }),
-  evaluate: () => post<EvalReport>("/api/evaluate", {}),
 };

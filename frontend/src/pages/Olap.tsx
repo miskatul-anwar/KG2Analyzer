@@ -33,7 +33,7 @@ export default function OlapPage() {
       <PageHeader title="OLAP" description="Roll up a cube along the hierarchy paths KG2MD discovered (ragged and alternative paths are unioned), then slice or dice by any member. Non-additive measures are guarded." />
       <Card>
         <div className="flex flex-wrap items-end gap-2">
-          <CubePicker value={sel} onChange={setSel} preferDim="product" />
+          <CubePicker value={sel} onChange={setSel} />
           <Select label="Roll up to level" value={levelValue} onChange={setLevel} options={(dim?.levels ?? []).map((l) => ({ value: l, label: localName(l) }))} />
           <Select label="Aggregate" value={agg} onChange={setAgg} options={[{ value: "", label: "(catalogue)" }, ...["sum", "avg", "min", "max", "count"].map((a) => ({ value: a, label: a }))]} />
           <Select label="Slice dimension" value={fDim} onChange={setFDim} options={[{ value: "", label: "—" }, ...(cube?.dimensions ?? []).map((d) => ({ value: d.prop, label: localName(d.prop) }))]} />

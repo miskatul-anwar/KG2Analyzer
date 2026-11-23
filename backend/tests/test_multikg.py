@@ -6,6 +6,7 @@ from decimal import Decimal
 
 import pytest
 
+from fixtures import load_enterprise
 from kg2analyzer.analyzer import KG2Analyzer
 
 ALICE = "http://example.org/retail#cust_1001"
@@ -17,7 +18,7 @@ FINANCE = ("finance", "trader", "tradeAmount")
 @pytest.fixture(scope="module")
 def az():
     a = KG2Analyzer(translator="rules")
-    a.load_benchmark()
+    load_enterprise(a)
     return a
 
 
@@ -78,7 +79,7 @@ def test_other_community_algorithms_run_on_the_member_graph(az, algorithm):
 
 def test_link_discovery_recovers_the_retail_finance_identity_pairs():
     a = KG2Analyzer(translator="rules")
-    a.load_benchmark(domains=["retail", "finance"])
+    load_enterprise(a, domains=["retail", "finance"])
     a.store.identity.remove((None, None, None))  # start without any known links
     a._invalidate()
     out = a.discover_links("retail", "finance")

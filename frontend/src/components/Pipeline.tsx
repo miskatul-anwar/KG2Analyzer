@@ -54,7 +54,7 @@ export function Pipeline() {
 
   return (
     <Card title={<span className="flex items-center gap-2"><Workflow className="size-4 text-accent" />Build MDKGs from your knowledge graphs</span>}
-      subtitle="Drop the whole set: one file per KG, TBox + ABox pairs (retail_tbox.ttl + retail_abox.ttl), one folder per KG, zip archives, and optionally owl:sameAs files. Every KG becomes an MDKG; links between KGs are discovered automatically.">
+      subtitle="Drop the whole set: one file per KG, TBox + ABox pairs (sales_tbox.ttl + sales_abox.ttl), one folder per KG, zip archives, and optionally owl:sameAs files. Every KG becomes an MDKG; links between KGs are discovered automatically.">
       <div
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}
         onClick={() => input.current?.click()}

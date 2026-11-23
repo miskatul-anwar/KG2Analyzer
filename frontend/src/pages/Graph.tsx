@@ -23,8 +23,12 @@ export default function GraphPage() {
   const { data: st } = useStatus();
   const kgs = st?.kgs ?? [];
   const refresh = useRefreshStore();
-  const [a, setA] = useState("retail");
-  const [b, setB] = useState("finance");
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  useEffect(() => {
+    if (!kgs.includes(a) && kgs[0]) setA(kgs[0]);
+    if (!kgs.includes(b) && kgs.length) setB(kgs[1] ?? kgs[0]);
+  }, [kgs, a, b]);
   const [threshold, setThreshold] = useState(0.5);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [proj, setProj] = useState("identity");

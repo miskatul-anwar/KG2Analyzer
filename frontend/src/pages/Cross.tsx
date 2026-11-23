@@ -10,8 +10,8 @@ import { fmtNum, localName, SERIES } from "@/lib/format";
 const COMBOS = ["integrated/naive", "integrated/pushdown", "federated/naive", "federated/pushdown"] as const;
 
 export default function CrossPage() {
-  const [left, setLeft] = useState<CubeSel>({ kg: "retail", dim: "", measure: "" });
-  const [right, setRight] = useState<CubeSel>({ kg: "finance", dim: "", measure: "" });
+  const [left, setLeft] = useState<CubeSel>({ kg: "", dim: "", measure: "" });
+  const [right, setRight] = useState<CubeSel>({ kg: "", dim: "", measure: "" });
   const [link, setLink] = useState("identity");
   const run = useMutation({ mutationFn: api.compare });
   const r = run.data;
@@ -21,8 +21,8 @@ export default function CrossPage() {
       <PageHeader title="Cross-KG query" description="Combine measures of two cubes, joined through the owl:sameAs identity graph or a conformed (shared-IRI) dimension. A naive join multiplies each side by the other's observation count; pushdown pre-aggregates each cube at its native grain first." />
       <Card>
         <div className="grid gap-4 lg:grid-cols-2">
-          <CubePicker label="Left cube" value={left} onChange={setLeft} preferDim="customer" preferMeasure="saleTotalAmount" />
-          <CubePicker label="Right cube" value={right} onChange={setRight} preferDim="trader" preferMeasure="tradeAmount" />
+          <CubePicker label="Left cube" value={left} onChange={setLeft} />
+          <CubePicker label="Right cube" value={right} onChange={setRight} defaultIndex={1} />
         </div>
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <Select label="Join" value={link} onChange={setLink} options={[

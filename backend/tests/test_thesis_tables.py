@@ -1,14 +1,9 @@
-"""Reproduce the thesis' results tables from the running system.
+"""Thesis results tables (4.4 telemetry, 4.5 Query 23, 4.2.4 communities, 4.6 NL benchmark), as tests.
 
-    uv run kg2analyzer evaluate                          # deterministic grounded parser
-    KG2A_TRANSLATOR=ollama uv run kg2analyzer evaluate   # local LLM (qwen2.5-coder:3b)
+Run against a local LLM instead of the grounded parser with KG2A_TRANSLATOR=ollama.
 """
 from __future__ import annotations
 
-import json
-import statistics
-import sys
-import time
 from decimal import Decimal
 
 from kg2analyzer.analyzer import KG2Analyzer
@@ -54,66 +49,51 @@ NL_QUESTIONS = [
 ]
 
 
-def run(az: KG2Analyzer | None = None) -> dict:
-    az = az or KG2Analyzer()
-    t0 = time.perf_counter()
-    az.load_benchmark()
-    load_s = time.perf_counter() - t0
-    report: dict = {"load_seconds": round(load_s, 2)}
+import os
 
-    # Table 4.4: seven-domain telemetry
-    tel = []
-    for kg, res in az.results.items():
-        for c in res.cubes:
-            tel.append({"domain": kg, "fact_class": local_name(c.fact_class),
-                        "fact_score": round(res.selection.scores[c.fact_class], 3),
-                        "otsu_tau": round(res.selection.threshold, 4), "observations": c.observations,
-                        "measures": len(c.measures), "fact_preservation": c.audit["fact_preservation"],
-                        "measure_fidelity": c.audit["measure_fidelity"]})
-    report["domain_telemetry"] = tel
+import pytest
 
-    # Table 4.5: Query 23 audit
-    q23 = {}
-    for strat in ("naive", "pushdown"):
-        for mode in ("integrated", "federated"):
-            r = az.cross_cube(("retail", "customer", "saleTotalAmount"), ("finance", "trader", "tradeAmount"), "identity", strat, mode)
-            q23[f"{strat}/{mode}"] = {local_name(x["left_entity"]): {"retail": str(x["left_total"]), "finance": str(x["right_total"])}
-                                      for x in r.rows} | {"seconds": round(r.seconds, 4)}
-    report["query23"] = q23
+from fixtures import load_enterprise
 
-    # 4.2.4: identity communities
-    com = az.communities("identity")
-    report["identity_communities"] = {"count": len(com["communities"]), "sizes": [c["size"] for c in com["communities"]],
-                                      "modularity": com["modularity"]}
 
-    # Table 4.6: NL benchmark
-    outcomes, lat = [], []
+@pytest.fixture(scope="module")
+def az():
+    a = KG2Analyzer(translator=os.environ.get("KG2A_TRANSLATOR", "rules"))
+    load_enterprise(a)
+    return a
+
+
+def test_table_4_4_seven_domain_telemetry(az):
+    cubes = [c for res in az.results.values() for c in res.cubes]
+    assert len(cubes) == 7
+    assert sum(c.observations for c in cubes) == 200
+    assert sum(len(c.measures) for c in cubes) == 22
+    assert all(c.audit["fact_preservation"] == 1.0 and c.audit["measure_fidelity"] == 1.0 for c in cubes)
+
+
+@pytest.mark.parametrize("mode", ["integrated", "federated"])
+def test_table_4_5_query_23_pushdown_is_exact_and_naive_is_inflated(az, mode):
+    left, right = ("retail", "customer", "saleTotalAmount"), ("finance", "trader", "tradeAmount")
+    push = {local_name(r["left_entity"]): r for r in az.cross_cube(left, right, "identity", "pushdown", mode).rows}
+    naive = {local_name(r["left_entity"]): r for r in az.cross_cube(left, right, "identity", "naive", mode).rows}
+    assert (Decimal(str(push["cust_1001"]["left_total"])), Decimal(str(push["cust_1001"]["right_total"]))) == (Decimal("1499.70"), Decimal("52620.00"))
+    assert (Decimal(str(push["cust_1002"]["left_total"])), Decimal(str(push["cust_1002"]["right_total"]))) == (Decimal("1499.70"), Decimal("50737.50"))
+    # 15 sales x 10 trades: every sale counted 10 times, every trade 15 times
+    assert (Decimal(str(naive["cust_1001"]["left_total"])), Decimal(str(naive["cust_1001"]["right_total"]))) == (Decimal("14997.00"), Decimal("789300.00"))
+
+
+def test_section_4_2_4_identity_communities(az):
+    rep = az.communities("identity")
+    assert [c["size"] for c in rep["communities"]] == [3, 3, 3, 3] and rep["modularity"] == pytest.approx(0.75)
+
+
+def test_table_4_6_nl_benchmark(az):
+    outcomes = []
     for qid, q, expect in NL_QUESTIONS:
         a = az.ask(q)
-        lat.append(a.seconds)
-        ok = (a.status in ("executed", "fallback") and bool(a.rows)) if expect == "answer" else a.status == "rejected"
-        outcomes.append({"id": qid, "question": q, "expected": expect, "status": a.status, "rows": len(a.rows),
-                         "correct_outcome": ok, "seconds": round(a.seconds, 3)})
-    executed = sum(1 for o in outcomes if o["status"] in ("executed", "fallback") and o["rows"])
-    report["nl_benchmark"] = {
-        "translator": az.nl.translator.name,
-        "questions": len(outcomes),
-        "model_generated_executed": sum(1 for o in outcomes if o["status"] == "executed" and o["rows"]),
-        "fallback_executed": sum(1 for o in outcomes if o["status"] == "fallback" and o["rows"]),
-        "rejected": sum(1 for o in outcomes if o["status"] == "rejected"),
-        "execution_rate": round(executed / len(outcomes), 4),
-        "correct_outcome_rate": round(sum(o["correct_outcome"] for o in outcomes) / len(outcomes), 4),
-        "mean_latency_seconds": round(statistics.mean(lat), 3),
-        "outcomes": outcomes,
-    }
-    return report
-
-
-def main() -> None:
-    rep = run()
-    json.dump(rep, sys.stdout, indent=2, default=lambda o: str(o) if isinstance(o, Decimal) else o)
-    print()
-
-
-if __name__ == "__main__":
-    main()
+        answered = a.status in ("executed", "fallback") and bool(a.rows)
+        outcomes.append((qid, expect, a.status, answered if expect == "answer" else a.status == "rejected"))
+    wrong = [o for o in outcomes if not o[3]]
+    assert not wrong, wrong
+    executed = sum(1 for o in outcomes if o[2] in ("executed", "fallback"))
+    assert (executed, len(outcomes)) == (32, 35)  # 91.43% execution rate, 3 correct refusals

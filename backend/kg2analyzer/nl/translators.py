@@ -143,8 +143,14 @@ class GroundedParser:
             best = next((m for m in cube.measures if m.additivity == "additive"), cube.measures[0] if cube.measures else None)
         return best
 
-    def _aggregate(self, q: str) -> str | None:
-        ql = q.lower()
+    def _aggregate(self, q: str, cubes: list[CubeInfo] | None = None) -> str | None:
+        ql = " ".join(tokens(q))
+        # words inside a measure's own name are not aggregate requests ("occupancy count", "max temperature")
+        for c in cubes or []:
+            for m in c.measures:
+                phrase = " ".join(tokens(local_name(m.iri)))
+                if len(phrase.split()) > 1:
+                    ql = re.sub(rf"\b{re.escape(phrase)}\b", " ", ql)
         for agg, words in AGG_WORDS:
             if any(re.search(rf"\b{re.escape(w)}\b", ql) for w in words):
                 if agg == "max" and re.search(r"\btop\s+\d+", ql):
@@ -222,7 +228,7 @@ class GroundedParser:
         if not kgs:
             return ""  # out of scope: nothing in the catalogue matches
         qtoks = tokens(question)
-        agg = self._aggregate(question)
+        agg = self._aggregate(question, [c for c in (self.cat.cube_for(k) for k in kgs) if c])
         tr.aggregate = agg
         ql = question.lower()
         if len(kgs) >= 2:

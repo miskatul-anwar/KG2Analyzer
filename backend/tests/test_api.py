@@ -7,8 +7,13 @@ from kg2analyzer import server
 
 @pytest.fixture(scope="module")
 def client():
+    from fixtures.enterprise import build_enterprise_benchmark
+
     c = TestClient(server.app)
-    assert c.post("/api/benchmark", json={"which": "enterprise"}).status_code == 200
+    bm = build_enterprise_benchmark()
+    files = [("files", (f"{n}.ttl", g.serialize(format="turtle").encode(), "text/turtle")) for n, g in bm.graphs.items()]
+    files.append(("files", ("links.ttl", bm.identity.serialize(format="turtle").encode(), "text/turtle")))
+    assert c.post("/api/pipeline", data={"reset": "true", "auto_link": "false"}, files=files).status_code == 200
     return c
 
 
@@ -52,7 +57,7 @@ def test_federation_over_http_to_a_remote_kg2analyzer(client, monkeypatch):
     import httpx
 
     from kg2analyzer.analyzer import KG2Analyzer
-    from kg2analyzer.benchmark.enterprise import build_enterprise_benchmark
+    from fixtures.enterprise import build_enterprise_benchmark
 
     def post(url, data=None, timeout=None, headers=None):
         return client.post(url.replace("http://testserver", ""), data=data, headers=headers)

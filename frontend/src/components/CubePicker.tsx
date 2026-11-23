@@ -6,8 +6,8 @@ import { localName } from "@/lib/format";
 export interface CubeSel { kg: string; dim: string; measure: string }
 
 /** KG + dimension + measure selector driven by the live schema catalogue. */
-export function CubePicker({ value, onChange, label, preferDim, preferMeasure }: {
-  value: CubeSel; onChange: (v: CubeSel) => void; label?: string; preferDim?: string; preferMeasure?: string;
+export function CubePicker({ value, onChange, label, defaultIndex = 0 }: {
+  value: CubeSel; onChange: (v: CubeSel) => void; label?: string; defaultIndex?: number;
 }) {
   const { data: cat } = useCatalog();
   const cubes = cat?.cubes ?? [];
@@ -15,16 +15,16 @@ export function CubePicker({ value, onChange, label, preferDim, preferMeasure }:
 
   useEffect(() => {
     if (!cubes.length) return;
-    const c = cube ?? cubes[0];
+    const c = cube ?? cubes[Math.min(defaultIndex, cubes.length - 1)];
     const dimOk = c.dimensions.some((d) => d.prop === value.dim);
     const mOk = c.measures.some((m) => m.iri === value.measure);
     if (!cube || !dimOk || !mOk) {
-      const dim = (c.dimensions.find((d) => localName(d.prop) === preferDim) ?? c.dimensions[0])?.prop ?? "";
-      const measure = (c.measures.find((m) => localName(m.iri) === preferMeasure) ?? c.measures[0])?.iri ?? "";
+      const dim = c.dimensions[0]?.prop ?? "";
+      const measure = (c.measures.find((m) => m.additivity === "additive") ?? c.measures[0])?.iri ?? "";
       const next = { kg: c.kg, dim: dimOk && cube ? value.dim : dim, measure: mOk && cube ? value.measure : measure };
       if (next.kg !== value.kg || next.dim !== value.dim || next.measure !== value.measure) onChange(next);
     }
-  }, [cubes, cube, value, onChange, preferDim, preferMeasure]);
+  }, [cubes, cube, value, onChange, defaultIndex]);
 
   return (
     <div className="flex flex-wrap items-end gap-2">

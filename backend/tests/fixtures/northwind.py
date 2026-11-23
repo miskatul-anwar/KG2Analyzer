@@ -12,7 +12,7 @@ from decimal import Decimal
 from rdflib import Graph, Literal, Namespace
 from rdflib.namespace import OWL, RDF, RDFS, XSD
 
-from kg2analyzer.benchmark.enterprise import UNIT
+from fixtures.enterprise import UNIT
 
 NW = Namespace("http://example.org/northwind#")
 

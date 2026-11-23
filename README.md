@@ -39,7 +39,7 @@ cd frontend && npm ci && npm run build
 cd backend && uv sync && uv run kg2analyzer serve --kgs /path/to/my_kgs
 ```
 
-Open http://127.0.0.1:8000. Try it without your own data: `uv run kg2analyzer benchmark --out demo_kgs` writes 7 raw demo KGs, or start with `--benchmark enterprise`.
+Open http://127.0.0.1:8000. The app starts empty when `--kgs` is omitted; drop your KGs on the Workspace page.
 
 **Batch / CLI** (no UI), writing one `<kg>.mdkg.trig` per KG plus `identity.ttl` and `report.json`:
 
@@ -53,13 +53,16 @@ cd backend && uv run kg2analyzer ask "Total sales by product category" --kgs /pa
 **UI development** (hot reload; Vite proxies `/api` and `/sparql` to the backend on :8000):
 
 ```bash
-cd frontend && npm install && npm run dev        # http://localhost:5173
+cd frontend && npm install && npm run dev        # or: bun install && bun run dev  -> http://localhost:5173
 ```
 
 **Docker**:
 
 ```bash
-docker build -t kg2analyzer . && docker run -p 8000:8000 kg2analyzer
+docker build -t kg2analyzer .
+```
+```bash
+docker run -p 8000:8000 -v "$PWD/my_kgs:/data" kg2analyzer --kgs /data
 ```
 
 **Local LLM for Phase III** (optional; without it the grounded parser answers):
@@ -90,7 +93,7 @@ REST docs are at `/docs`. `/sparql` and `/sparql/{kg}` implement the SPARQL 1.1 
 
 ## Reproducing the thesis results
 
-Run `uv run kg2analyzer evaluate` in `backend/`, or use the **Evaluate** page. On the enterprise benchmark:
+The thesis benchmark KGs live in `backend/tests/fixtures/` (test data only; the app never loads them). `cd backend && uv run pytest tests/test_thesis_tables.py -q` checks these results:
 
 | Result | Value |
 |---|---|
@@ -108,10 +111,10 @@ Run `uv run kg2analyzer evaluate` in `backend/`, or use the **Evaluate** page. O
 backend/
   kg2analyzer/      Python package: analyzer.py (entry point), kg2md/, nl/, store, planner, olap, linking, graphml, server
   models/           trained measure-classifier pipelines (joblib)
-  tests/            39 seam tests (Phase I, multi-KG, NL, HTTP + federation)
+  tests/            seam tests incl. the thesis tables; fixtures/ holds the thesis benchmark KGs
 frontend/
   src/api/          typed API client + TanStack Query hooks
-  src/pages/        Workspace, KG2MD, OLAP, Cross-KG, Links & Communities, Ask, SPARQL, Evaluate
+  src/pages/        Workspace, KG2MD, OLAP, Cross-KG, Links & Communities, Ask, SPARQL
   src/components/   UI kit (Card, DataTable, Chip, ...) and CubePicker
 docs/adr/           architecture decisions        GLOSSARY.md   domain language
 .claude/skills/     Matt Pocock's engineering skills (tdd, code-review, to-spec, ...)

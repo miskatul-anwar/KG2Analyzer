@@ -1,4 +1,4 @@
-"""Command line: uv run kg2analyzer {build,serve,ask,evaluate,benchmark}.
+"""Command line: uv run kg2analyzer {build,serve,ask}.
 
 KG inputs (``build``, ``serve --kgs``, ``ask --kgs``) are any mix of RDF files, TBox/ABox pairs
 (``x_tbox.ttl`` + ``x_abox.ttl``), one folder per KG, zip archives and owl:sameAs files.
@@ -51,15 +51,10 @@ def main(argv: list[str] | None = None) -> None:
     _kg_args(s, required=False)
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8000)
-    s.add_argument("--benchmark", choices=["enterprise", "northwind"], help="preload a generated benchmark instead")
 
-    a = sub.add_parser("ask", help="ask one question over your KGs (or the enterprise benchmark)")
+    a = sub.add_parser("ask", help="ask one question over your KGs")
     a.add_argument("question")
     _kg_args(a, required=False)
-
-    sub.add_parser("evaluate", help="reproduce the thesis result tables as JSON")
-    bm = sub.add_parser("benchmark", help="write the generated benchmark KGs to a folder (example input)")
-    bm.add_argument("--out", default="benchmark_kgs")
     args = p.parse_args(argv)
 
     if args.cmd == "build":
@@ -80,32 +75,12 @@ def main(argv: list[str] | None = None) -> None:
             server.AZ.ingest_paths(args.kgs, auto_link=not args.no_link, link_threshold=args.threshold,
                                    max_facts=args.max_facts)
             print(_summary(server.AZ.last_report), file=sys.stderr)
-        elif args.benchmark:
-            server.AZ.load_benchmark(args.benchmark)
         uvicorn.run(server.app, host=args.host, port=args.port)
     elif args.cmd == "ask":
-        if args.kgs:
-            az, _ = _build(args.kgs, args)
-        else:
-            from kg2analyzer.analyzer import KG2Analyzer
-
-            az = KG2Analyzer()
-            az.load_benchmark()
+        if not args.kgs:
+            p.error("ask needs --kgs PATH [PATH ...]")
+        az, _ = _build(args.kgs, args)
         print(json.dumps(az.ask(args.question).to_dict(), indent=1, default=str))
-    elif args.cmd == "evaluate":
-        from kg2analyzer.benchmark.evaluate import main as ev
-
-        ev()
-    elif args.cmd == "benchmark":
-        from kg2analyzer.benchmark.enterprise import build_enterprise_benchmark
-
-        bmk = build_enterprise_benchmark()
-        out = Path(args.out)
-        out.mkdir(parents=True, exist_ok=True)
-        for name, g in bmk.graphs.items():
-            (out / f"{name}.ttl").write_text(g.serialize(format="turtle"))
-        print(f"wrote {len(bmk.graphs)} raw KGs to {out}/ (no identity links: build/serve will discover them)",
-              file=sys.stderr)
 
 
 if __name__ == "__main__":

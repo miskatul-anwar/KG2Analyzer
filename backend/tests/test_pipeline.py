@@ -13,7 +13,7 @@ from rdflib import Dataset
 from rdflib.namespace import OWL, RDF, RDFS
 
 from kg2analyzer.analyzer import KG2Analyzer
-from kg2analyzer.benchmark.enterprise import build_enterprise_benchmark
+from fixtures.enterprise import build_enterprise_benchmark
 
 SCHEMA_TYPES = {OWL.Class, OWL.ObjectProperty, OWL.DatatypeProperty}
 
@@ -124,3 +124,17 @@ def test_pipeline_endpoint_accepts_many_files_and_zip_archives(bench):
     assert body["identity"]["links_added"] == 2  # Alice and Bob
     assert client.get("/api/kgs/retail/mdkg.trig").status_code == 200
     assert client.get("/api/mdkg.zip").headers["content-type"] == "application/zip"
+
+
+def test_suggested_questions_are_all_answerable_on_the_users_kgs(built):
+    az, _ = built
+    suggestions = az.suggest_questions()
+    assert len(suggestions) >= 4
+    assert any(" and " in q and "shared" in q for q in suggestions)  # at least one cross-KG join
+    for q in suggestions:
+        ans = az.ask(q)
+        assert ans.status == "executed" and ans.rows, (q, ans.insight)
+
+
+def test_no_suggestions_without_kgs():
+    assert KG2Analyzer(translator="rules").suggest_questions() == []

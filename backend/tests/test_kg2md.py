@@ -4,8 +4,8 @@ from decimal import Decimal
 import pytest
 from rdflib import URIRef
 
-from kg2analyzer.benchmark.enterprise import build_enterprise_benchmark, ns
-from kg2analyzer.benchmark.northwind import NW, build_northwind
+from fixtures.enterprise import build_enterprise_benchmark, ns
+from fixtures.northwind import NW, build_northwind
 from kg2analyzer.kg2md.pipeline import run_kg2md
 from kg2analyzer.kg2md.profiling import otsu_threshold
 

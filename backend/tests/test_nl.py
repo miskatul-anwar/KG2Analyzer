@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from fixtures import load_enterprise
 from kg2analyzer.analyzer import KG2Analyzer
 
 ALICE = "http://example.org/retail#cust_1001"
@@ -25,7 +26,7 @@ class ScriptedLLM:
 @pytest.fixture(scope="module")
 def az():
     a = KG2Analyzer(translator="rules")
-    a.load_benchmark()
+    load_enterprise(a)
     return a
 
 

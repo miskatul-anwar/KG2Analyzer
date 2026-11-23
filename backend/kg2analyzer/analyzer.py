@@ -1,7 +1,7 @@
 """KG2Analyzer: the single entry point (developer-facing interface).
 
     az = KG2Analyzer()
-    az.load_benchmark()                                   # or az.load_kg("retail", "retail.ttl")
+    az.ingest_paths(["my_kgs/"])                          # every KG -> MDKG, identity links discovered
     az.cross_cube(("retail", "customer", "saleTotalAmount"),
                   ("finance", "trader", "tradeAmount"))   # pushdown, Cartesian-safe
     az.communities("identity")
@@ -46,6 +46,7 @@ class KG2Analyzer:
         self._translator_spec = translator
         self._nl: NLInterface | None = None
         self.last_report: dict = {}
+        self._suggestions: list[str] | None = None
 
     # ---------------------------------------------------------------- loading / Phase I
     @property
@@ -171,22 +172,6 @@ class KG2Analyzer:
         self._invalidate()
         return len(pairs)
 
-    def load_benchmark(self, which: str = "enterprise", domains: list[str] | None = None) -> dict:
-        t0 = time.perf_counter()
-        if which == "northwind":
-            from kg2analyzer.benchmark.northwind import build_northwind
-
-            self.load_kg("northwind", build_northwind())
-        else:
-            from kg2analyzer.benchmark.enterprise import build_enterprise_benchmark
-
-            bm = build_enterprise_benchmark()
-            for d, g in bm.graphs.items():
-                if domains is None or d in domains:
-                    self.load_kg(d, g)
-            self.load_identity(bm.identity)
-        return {"benchmark": which, "seconds": round(time.perf_counter() - t0, 3), "graphs": self.store.graph_stats()}
-
     def remove_kg(self, name: str) -> None:
         self.store.remove_kg(name)
         self.results.pop(name, None)
@@ -196,6 +181,7 @@ class KG2Analyzer:
     def _invalidate(self):
         self._catalog = None
         self._nl = None
+        self._suggestions = None
 
     @property
     def catalog(self) -> Catalog:
@@ -303,6 +289,62 @@ class KG2Analyzer:
 
     def ask(self, question: str) -> Answer:
         return self.nl.ask(question)
+
+    def suggest_questions(self, limit: int = 6) -> list[str]:
+        """Example questions built from the loaded MDKGs' own vocabulary.
+
+        Each candidate is run through the grounded parser and the four validation rules (nothing is
+        executed), and only those that pass are returned, so every suggestion is answerable.
+        """
+        import re
+
+        from kg2analyzer.nl.interface import expand_aliases
+
+        if self._suggestions is not None:
+            return self._suggestions[:limit]
+        cat = self.catalog
+        if not cat.cubes:
+            return []
+
+        def words(iri: str) -> str:
+            return re.sub(r"[_\-]+", " ", re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", local_name(iri))).lower()
+
+        def measure(c, additive=True):
+            return next((m for m in c.measures if (m.additivity == "additive") == additive), None)
+
+        candidates: list[str] = []
+        for c in cat.cubes:
+            m = measure(c) or (c.measures[0] if c.measures else None)
+            if m is None:
+                continue
+            for d in c.dimensions[:2]:
+                candidates.append(f"Total {words(m.iri)} by {words(d.levels[1] if len(d.levels) > 1 else d.levels[0])} in {c.kg}")
+            na = measure(c, additive=False)
+            if na and c.dimensions:
+                candidates.append(f"Average {words(na.iri)} per {words(c.dimensions[0].prop)} in {c.kg}")
+        if len(self.store.identity):
+            for i, a in enumerate(cat.cubes):
+                for b in cat.cubes[i + 1:]:
+                    ma, mb = measure(a), measure(b)
+                    if ma and mb:
+                        candidates.append(f"Total {a.kg} {words(ma.iri)} and {b.kg} {words(mb.iri)} for shared entities")
+        parser, validator = self.nl.parser, self.nl.validator
+        ok, seen_kinds = [], set()
+        for q in candidates:
+            sparql = parser.translate(q)
+            if not sparql:
+                continue
+            sparql = expand_aliases(sparql, cat)
+            if not all(c.ok for c in validator.validate(sparql, q)) or not self.store.query(sparql).rows:
+                continue  # invalid, or valid but empty (e.g. two KGs with no entity in common)
+            kind = ("join" if " and " in q else "avg" if q.startswith("Average") else "total", parser.last_trace.cubes[0])
+            if kind in seen_kinds:
+                continue  # variety: one question of each kind per KG
+            seen_kinds.add(kind)
+            ok.append(q)
+        joins = [q for q in ok if " and " in q][:2]
+        self._suggestions = joins + [q for q in ok if " and " not in q]
+        return self._suggestions[:limit]
 
     # ---------------------------------------------------------------- reporting
     def phase1_report(self, kg: str) -> dict:

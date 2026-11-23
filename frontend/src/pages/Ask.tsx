@@ -3,23 +3,14 @@ import clsx from "clsx";
 import { CheckCircle2, SendHorizontal, ShieldAlert, Sparkles, XCircle } from "lucide-react";
 import { useState } from "react";
 import { api, type Answer } from "@/api/client";
-import { useRefreshStore, useStatus } from "@/api/hooks";
+import { useRefreshStore, useStatus, useSuggestions } from "@/api/hooks";
 import { Card, Chip, Code, ErrorBox, PageHeader, RowsTable, Select, Spinner } from "@/components/ui";
-
-const EXAMPLES = [
-  "Show total retail sales and investment trade volume for our shared corporate clients",
-  "Total sale amount by product category",
-  "Average turnaround hours per lab in healthcare",
-  "Daily retail sales and energy consumed on the same day",
-  "Top 3 products by retail sales",
-  "Total retail sales for Alice",
-  "Delete all retail customers",
-];
 
 export default function AskPage() {
   const [q, setQ] = useState("");
   const [history, setHistory] = useState<Answer[]>([]);
   const { data: st } = useStatus();
+  const examples = useSuggestions().data?.questions ?? [];
   const refresh = useRefreshStore();
   const ask = useMutation({ mutationFn: api.ask, onSuccess: (a) => setHistory((h) => [a, ...h]) });
   const tr = useMutation({ mutationFn: api.setTranslator, onSuccess: refresh });
@@ -40,11 +31,12 @@ export default function AskPage() {
       <Card>
         <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); submit(q); }}>
           <input className="input grow text-[15px]" value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder="e.g. Show total retail sales and investment trade volume for our shared corporate clients" autoFocus />
+            placeholder={examples[0] ? `e.g. ${examples[0]}` : "Ask about your knowledge graphs"} autoFocus />
           <button className="btn-primary" disabled={ask.isPending}><SendHorizontal className="size-4" />Ask</button>
         </form>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {EXAMPLES.map((e) => <button key={e} className="max-w-full" onClick={() => submit(e)}><Chip wrap>{e}</Chip></button>)}
+          {!examples.length && <span className="text-xs text-ink-3">Load knowledge graphs on the Workspace page to get started.</span>}
+          {examples.map((e) => <button key={e} className="max-w-full" onClick={() => submit(e)}><Chip wrap>{e}</Chip></button>)}
         </div>
       </Card>
       {ask.isPending && <div className="mt-4"><Spinner label="translating, validating, executing…" /></div>}

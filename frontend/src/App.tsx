@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import {
-  Boxes, Database, FlaskConical, GitMerge, Layers, MessageSquareText, Moon, Network, Sun, Terminal,
+  Boxes, Database, GitMerge, Layers, MessageSquareText, Moon, Network, Sun, Terminal,
 } from "lucide-react";
 import { lazy, Suspense } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
@@ -9,7 +9,6 @@ import { Spinner } from "@/components/ui";
 import { useTheme } from "@/lib/theme";
 const AskPage = lazy(() => import("@/pages/Ask"));
 const CrossPage = lazy(() => import("@/pages/Cross"));
-const EvaluatePage = lazy(() => import("@/pages/Evaluate"));
 const GraphPage = lazy(() => import("@/pages/Graph"));
 const Kg2mdPage = lazy(() => import("@/pages/Kg2md"));
 const OlapPage = lazy(() => import("@/pages/Olap"));
@@ -24,7 +23,6 @@ const NAV = [
   { to: "/graph", label: "Links & Communities", icon: Network, hint: "Graph analytics" },
   { to: "/ask", label: "Ask", icon: MessageSquareText, hint: "Phase III · NL" },
   { to: "/sparql", label: "SPARQL", icon: Terminal, hint: "Console" },
-  { to: "/evaluate", label: "Evaluate", icon: FlaskConical, hint: "Thesis tables" },
 ];
 
 export default function App() {
@@ -80,7 +78,6 @@ export default function App() {
             <Route path="/graph" element={<GraphPage />} />
             <Route path="/ask" element={<AskPage />} />
             <Route path="/sparql" element={<SparqlPage />} />
-            <Route path="/evaluate" element={<EvaluatePage />} />
             <Route path="*" element={<Navigate to="/workspace" replace />} />
           </Routes>
           </Suspense>

@@ -68,22 +68,6 @@ def status():
     return guarded(f)
 
 
-class BenchmarkReq(BaseModel):
-    which: str = "enterprise"
-    reset: bool = True
-
-
-@app.post("/api/benchmark")
-def load_benchmark(req: BenchmarkReq):
-    def f():
-        if req.reset:
-            for kg in list(AZ.store.sources):
-                AZ.remove_kg(kg)
-            AZ.store.identity.remove((None, None, None))
-        return ok(AZ.load_benchmark(req.which))
-    return guarded(f)
-
-
 @app.post("/api/kgs")
 async def upload_kg(name: str = Form(...), file: UploadFile = File(...), fmt: str | None = Form(None),
                     max_facts: int | None = Form(None)):
@@ -221,6 +205,12 @@ def ask(req: AskReq):
     return guarded(lambda: ok(AZ.ask(req.question).to_dict()))
 
 
+@app.get("/api/suggestions")
+def suggestions():
+    """Example questions over the loaded MDKGs; each one is validated and returns rows."""
+    return guarded(lambda: ok({"questions": AZ.suggest_questions()}))
+
+
 class TranslatorReq(BaseModel):
     spec: str  # rules | auto | ollama[:model] | openai
 
@@ -228,15 +218,6 @@ class TranslatorReq(BaseModel):
 @app.post("/api/translator")
 def translator(req: TranslatorReq):
     return guarded(lambda: ok({"translator": AZ.set_translator(req.spec)}))
-
-
-@app.post("/api/evaluate")
-def evaluate():
-    from kg2analyzer.benchmark.evaluate import run
-
-    def f():
-        return ok(run(KG2Analyzer(translator=AZ._translator_spec)))
-    return guarded(f)
 
 
 @app.get("/api/export.nq", response_class=PlainTextResponse)
