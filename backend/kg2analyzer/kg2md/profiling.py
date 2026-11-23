@@ -20,18 +20,19 @@ SCHEMA_TYPES = {OWL.Class, RDFS.Class, OWL.ObjectProperty, OWL.DatatypeProperty,
                 OWL.AnnotationProperty, OWL.Ontology, OWL.Restriction}
 
 
-def rdfs_closure(graph: Graph) -> Graph:
+def rdfs_closure(graph: Graph, protected: set | None = None) -> Graph:
     """Forward-chaining RDFS closure (rdfs2, rdfs3, rdfs7, rdfs9, rdfs11) over a copy.
 
-    Schema entities (classes, properties) are protected from instance-level
-    entailment so ``rdfs:domain`` on annotation properties cannot type them.
+    Schema entities (classes, properties, plus every subject declared in the TBox via
+    ``protected``) are shielded from instance-level entailment, so ``rdfs:domain`` on an
+    annotation property cannot type them.
     """
     g = Graph()
     for t in graph:
         g.add(t)
     for prefix, uri in graph.namespaces():
         g.bind(prefix, uri, override=False)
-    schema = {s for s, _, o in graph.triples((None, RDF.type, None)) if o in SCHEMA_TYPES}
+    schema = {s for s, _, o in graph.triples((None, RDF.type, None)) if o in SCHEMA_TYPES} | set(protected or ())
     while True:
         new = set()
         # rdfs11 / rdfs5: transitivity

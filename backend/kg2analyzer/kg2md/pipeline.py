@@ -61,6 +61,9 @@ class KG2MDResult:
     schema: Graph  # QB4OLAP structure (datasets, DSDs, levels, hierarchies)
     data: Graph  # observations + level members with their roll-up links
     closure_added: int
+    tbox_triples: int = 0
+    abox_triples: int = 0
+    undeclared_properties: list[str] = field(default_factory=list)  # ABox predicates the TBox does not declare
 
 
 def _ns_of(iri: URIRef) -> str:
@@ -68,9 +71,30 @@ def _ns_of(iri: URIRef) -> str:
     return s[: s.rfind("#") + 1] if "#" in s else s[: s.rfind("/") + 1]
 
 
+STANDARD_NS = (str(RDF), str(RDFS), str(OWL), str(XSD))
+DECLARED_PROPERTY_TYPES = (OWL.ObjectProperty, OWL.DatatypeProperty, OWL.AnnotationProperty, RDF.Property)
+
+
 def run_kg2md(graph: Graph, classifier: MeasureClassifier | None = None, scorer: FactScorer | None = None,
-              otsu_bins: int | None = None, max_facts: int | None = None, explain: bool = True) -> KG2MDResult:
-    g = rdfs_closure(graph)
+              otsu_bins: int | None = None, max_facts: int | None = None, explain: bool = True,
+              tbox: Graph | None = None) -> KG2MDResult:
+    """KG -> MDKG. With ``tbox`` given, ``graph`` is the ABox: TBox entities are protected from
+    instance inference and ABox properties that the TBox does not declare are reported (still profiled)."""
+    abox_triples, tbox_triples, undeclared, protected = len(graph), 0, [], set()
+    if tbox is not None:
+        tbox_triples = len(tbox)
+        protected = {s for s in tbox.subjects() if isinstance(s, URIRef)}
+        declared = {p for t in DECLARED_PROPERTY_TYPES for p in tbox.subjects(RDF.type, t)}
+        used = {p for _, p, _ in graph if isinstance(p, URIRef) and not str(p).startswith(STANDARD_NS)}
+        undeclared = sorted(str(p) for p in used - declared)
+        merged = Graph()
+        for src in (tbox, graph):
+            for t in src:
+                merged.add(t)
+            for prefix, uri in src.namespaces():
+                merged.bind(prefix, uri, override=False)
+        graph = merged
+    g = rdfs_closure(graph, protected)
     profiles = profile_classes(g)
     selection = select_fact_classes(profiles, scorer, bins=otsu_bins, max_facts=max_facts)
     classifier = classifier or MeasureClassifier()
@@ -85,7 +109,7 @@ def run_kg2md(graph: Graph, classifier: MeasureClassifier | None = None, scorer:
     prof = {p.iri: p for p in profiles}
     cubes = [_materialise(g, graph, fc, prof[fc], types, classifier, schema, data, explain)
              for fc in selection.selected]
-    return KG2MDResult(profiles, selection, cubes, schema, data, len(g) - len(graph))
+    return KG2MDResult(profiles, selection, cubes, schema, data, len(g) - len(graph), tbox_triples, abox_triples, undeclared)
 
 
 def _unit(g: Graph, prop: URIRef) -> str | None:
