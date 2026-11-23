@@ -1,27 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "@/api/client";
-import { useStatus } from "@/api/hooks";
-import { Card, Chip, DataTable, Empty, ErrorBox, Kpi, PageHeader, Select, SignedChip, Spinner } from "@/components/ui";
+import { Card, Chip, DataTable, ErrorBox, Kpi, SignedChip, Spinner } from "@/components/kit";
 import { SERIES } from "@/lib/format";
 
-export default function Kg2mdPage() {
-  const { data: st } = useStatus();
-  const kgs = st?.kgs ?? [];
-  const [kg, setKg] = useState("");
-  useEffect(() => { if (!kg && kgs.length) setKg(kgs[0]); }, [kgs, kg]);
-  const { data: r, isLoading, error } = useQuery({ queryKey: ["phase1", kg], queryFn: () => api.phase1(kg), enabled: !!kg });
-
+/** Phase I detail for one KG: Otsu fact selection, class scores, measures with SHAP/LIME, ADW4 hierarchies, audit. */
+export function MdkgDetails({ kg }: { kg: string }) {
+  const { data: r, isLoading, error } = useQuery({ queryKey: ["phase1", kg], queryFn: () => api.phase1(kg), staleTime: Infinity });
+  if (isLoading) return <Spinner label="loading…" />;
+  if (error) return <ErrorBox error={error} />;
+  if (!r) return null;
   return (
-    <>
-      <PageHeader title="Phase I · KG2MD" description="RDFS closure → class profiling → fact probability → Otsu threshold (maximises between-class variance) → measure additivity with SHAP & LIME → ADW4 hierarchy discovery → QB4OLAP cube + preservation audit.">
-        <Select label="Knowledge graph" value={kg} onChange={setKg} options={kgs.map((k) => ({ value: k, label: k }))} />
-      </PageHeader>
-      {!kgs.length && <Empty>Load a KG on the Workspace page first.</Empty>}
-      {isLoading && <Spinner label="loading report…" />}
-      <ErrorBox error={error} />
-      {r && (
         <div className="flex min-w-0 flex-col gap-4">
           <Card title="Otsu fact-class selection" subtitle={<>Scorer <b>{r.scorer}</b> · RDFS closure added {r.closure_added_triples} triples · τ* = <b>{r.otsu_threshold}</b> · {r.classes.filter((c) => c.selected).length} of {r.classes.length} classes become cubes</>}>
             <div className="h-72">
@@ -89,7 +78,5 @@ export default function Kg2mdPage() {
             </Card>
           ))}
         </div>
-      )}
-    </>
   );
 }

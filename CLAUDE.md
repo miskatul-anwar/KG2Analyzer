@@ -14,6 +14,11 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
 
 ## Frontend (`frontend/`)
 
+- Three steps only: **Build** (KGs → MDKGs, `pages/Build.tsx`), **Query** across MDKGs (`pages/Query.tsx`), **Ask** in NL (`pages/Ask.tsx`). Community detection stays API-only (`/api/communities`).
+- UI stack: shadcn/ui in `src/components/ui/` (generated, keep edits minimal), app wrappers in `src/components/kit.tsx`, motion/GSAP/Aceternity-style effects in `src/components/fx.tsx`, react-icons for icons, Sigma.js 3 + graphology for graphs (`MdkgMap.tsx`; Sigma 4 is a different API, see ADR 0006).
+- UI state that must survive reloads (query selections, chat, open panel, theme) lives in the Zustand store `src/store.ts`; server data lives in TanStack Query with `staleTime: Infinity` (mutations invalidate everything).
+- The brand colour token is `brand` (`text-brand`, `bg-brand`); `accent` is shadcn's subtle hover grey.
+
 - `src/api/client.ts` holds the typed API surface: change it together with `server.py`.
 - Data fetching goes through TanStack Query (`src/api/hooks.ts`); after a mutation that changes the store, call `useRefreshStore()`.
 - Colours are semantic tokens in `src/index.css` (`bg-surface`, `text-ink-2`, series `--s1..--s8`); never hard-code hex in components. Categorical series follow the fixed palette order.

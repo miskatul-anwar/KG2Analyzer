@@ -97,6 +97,15 @@ export interface PipelineReport {
   seconds: { parse: number; kg2md: number; linking: number; total: number };
 }
 
+export interface OverviewKg {
+  kg: string; files: string[]; triples: number; otsu_threshold: number; classes: number;
+  cubes: PipelineReport["kgs"][number]["cubes"];
+}
+export interface IdentityLink { left: string; right: string; left_label: string | null; right_label: string | null; left_kg: string; right_kg: string }
+export interface Overview { kgs: OverviewKg[]; remote: string[]; identity: { links: IdentityLink[]; clusters: number } }
+export interface Member { iri: string; label: string }
+export interface JoinOption { left_dim: string; right_dim: string; link: "identity" | "shared"; aligned: number; label: string }
+
 export class ApiError extends Error {}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -128,6 +137,10 @@ export const api = {
   communities: (body: { projection: string; algorithm: string; kgs: string[] | null }) => post<CommunityReport>("/api/communities", body),
   discover: (body: { kg_a: string; kg_b: string; threshold: number }) => post<DiscoverResult>("/api/links/discover", body),
   addLinks: (pairs: [string, string][]) => post<{ links_added: number }>("/api/links", { pairs }),
+  overview: () => request<Overview>("/api/overview"),
+  members: (kg: string, dim: string, level: string | null) =>
+    request<{ members: Member[] }>(`/api/members?${new URLSearchParams({ kg, dim, ...(level ? { level } : {}) })}`),
+  joins: (a: string, b: string) => request<{ options: JoinOption[] }>(`/api/joins?${new URLSearchParams({ a, b })}`),
   ask: (question: string) => post<Answer>("/api/ask", { question }),
   suggestions: () => request<{ questions: string[] }>("/api/suggestions"),
   setTranslator: (spec: string) => post<{ translator: string }>("/api/translator", { spec }),

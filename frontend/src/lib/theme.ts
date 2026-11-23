@@ -1,20 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import { useUi } from "@/store";
 
 export type Theme = "light" | "dark";
 
-function initial(): Theme {
-  try {
-    const saved = localStorage.getItem("kg2a-theme");
-    if (saved === "light" || saved === "dark") return saved;
-  } catch { /* storage unavailable */ }
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
+const media = () => window.matchMedia("(prefers-color-scheme: dark)");
+const subscribe = (cb: () => void) => { const m = media(); m.addEventListener("change", cb); return () => m.removeEventListener("change", cb); };
 
+/** Effective theme: the viewer's choice (persisted) or else the OS setting. Applies the `dark` class. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(initial);
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    try { localStorage.setItem("kg2a-theme", theme); } catch { /* ignore */ }
-  }, [theme]);
-  return [theme, () => setTheme((t) => (t === "dark" ? "light" : "dark"))];
+  const chosen = useUi((s) => s.theme);
+  const setTheme = useUi((s) => s.setTheme);
+  const osDark = useSyncExternalStore(subscribe, () => media().matches, () => false);
+  const theme: Theme = chosen ?? (osDark ? "dark" : "light");
+  useEffect(() => { document.documentElement.classList.toggle("dark", theme === "dark"); }, [theme]);
+  return [theme, () => setTheme(theme === "dark" ? "light" : "dark")];
 }

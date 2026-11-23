@@ -4,7 +4,7 @@
 
 KG2Analyzer turns raw RDF/OWL knowledge graphs into QB4OLAP cubes and hosts them as source-aware named graphs. You can analyse them across KGs, physically integrated or federated, without the Cartesian multiplication trap, from a React dashboard, a typed REST API, SPARQL endpoints, or plain-English questions.
 
-**Stack:** React 19 · TypeScript · Vite · Tailwind CSS v4 · TanStack Query · React Router · Recharts · react-force-graph on the frontend; FastAPI · RDFLib · NetworkX · scikit-learn on the backend, managed with uv.
+**Stack:** React 19 · TypeScript · Vite · Tailwind CSS v4 · shadcn/ui (Radix) · Motion (Framer Motion) · GSAP · Aceternity-style effects · react-icons · Sigma.js + graphology (WebGL graph) · TanStack Query · Zustand · Recharts on the frontend; FastAPI · RDFLib · NetworkX · scikit-learn on the backend, managed with uv.
 
 | Thesis phase | What it does | Where |
 |---|---|---|
@@ -114,8 +114,8 @@ backend/
   tests/            seam tests incl. the thesis tables; fixtures/ holds the thesis benchmark KGs
 frontend/
   src/api/          typed API client + TanStack Query hooks
-  src/pages/        Workspace, KG2MD, OLAP, Cross-KG, Links & Communities, Ask, SPARQL
-  src/components/   UI kit (Card, DataTable, Chip, ...) and CubePicker
+  src/pages/        the three steps: Build (KGs → MDKGs), Query (builder + SPARQL), Ask (NL chat)
+  src/components/   ui/ (shadcn), kit.tsx (app wrappers), fx.tsx (motion/GSAP effects), MdkgMap (Sigma), Pipeline
 docs/adr/           architecture decisions        GLOSSARY.md   domain language
 .claude/skills/     Matt Pocock's engineering skills (tdd, code-review, to-spec, ...)
 ```
