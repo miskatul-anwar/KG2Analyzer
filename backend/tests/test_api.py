@@ -84,3 +84,33 @@ def test_join_options_offer_identity_and_conformed_date_joins(client):
             "link": "identity"} in [{k: o[k] for k in ("left_dim", "right_dim", "link")} for o in retail_finance]
     assert any(o["link"] == "shared" for o in retail_finance)  # both cubes have the conformed calendar
     assert retail_finance[0]["link"] == "identity" and retail_finance[0]["aligned"] >= 2  # best option first
+
+
+def test_build_query_and_ask_are_separate_workspaces_connected_only_by_files(client):
+    # `client` built the benchmark in the default (build) workspace
+    saved = client.get("/api/mdkg.zip", params={"ws": "build"}).content
+    for ws in ("query", "ask"):
+        client.post("/api/reset", params={"ws": ws})
+        assert client.get("/api/mdkgs", params={"ws": ws}).json()["mdkgs"] == []
+    r = client.post("/api/mdkgs", params={"ws": "query"}, files=[("files", ("my-mdkgs.zip", saved, "application/zip"))])
+    assert r.status_code == 200, r.text
+    assert len(r.json()["mdkgs"]) == 7
+    assert client.get("/api/mdkgs", params={"ws": "ask"}).json()["mdkgs"] == []  # Ask has its own MDKGs
+    olap = client.post("/api/olap", params={"ws": "query"},
+                       json={"kg": "retail", "measure": "saleTotalAmount", "group_by": [["product", "Category"]]}).json()
+    assert round(sum(x["total"] for x in olap["rows"]), 2) == 2999.40
+    picked = [("files", (n, c, "application/trig")) for n, c in _zip_members(saved, {"retail.mdkg.trig", "finance.mdkg.trig"})]
+    assert client.post("/api/mdkgs", params={"ws": "ask"}, files=picked).status_code == 200
+    a = client.post("/api/ask", params={"ws": "ask"},
+                    json={"question": "Show total retail sales and investment trade volume for our shared corporate clients"}).json()
+    assert a["status"] == "executed" and len(a["rows"]) == 2
+    assert client.get("/api/x", params={"ws": "nope"}).status_code in (404, 200)  # SPA fallback may serve unknown paths
+    assert client.get("/api/mdkgs", params={"ws": "nope"}).status_code == 404
+
+
+def _zip_members(blob, names):
+    import io
+    import zipfile
+
+    z = zipfile.ZipFile(io.BytesIO(blob))
+    return [(n, z.read(n)) for n in z.namelist() if n in names]

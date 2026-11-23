@@ -1,0 +1,3 @@
+# Build, Query and Ask share MDKG files, not state
+
+Each section has its own backend workspace (`?ws=build|query|ask`). Build turns raw KGs (TBox + ABox) into MDKGs, which the user saves where they choose. Query and Ask each load the MDKG files they want, with `load_mdkgs`, which reads the saved schema and observation graphs without re-running KG2MD. This matches how MDKGs are used: they are built once, possibly on another machine (the KG2MD notebook's `run.sh`), and analysed many times in different combinations. It also means a query session can never silently change because someone rebuilt in another tab. The cost is an explicit save/load step, and identity links must travel with the MDKGs (`identity.ttl`) or be rediscovered on load.

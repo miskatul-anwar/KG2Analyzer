@@ -46,6 +46,7 @@ class KG2Analyzer:
         self._translator_spec = translator
         self._nl: NLInterface | None = None
         self.last_report: dict = {}
+        self.inputs: dict[str, dict] = {}  # kg -> {"tbox_files": [...], "abox_files": [...]}
         self._suggestions: list[str] | None = None
 
     # ---------------------------------------------------------------- loading / Phase I
@@ -56,16 +57,20 @@ class KG2Analyzer:
         return self._classifier
 
     def load_kg(self, name: str, source: Graph | str | Path | bytes, fmt: str | None = None,
-                materialize: bool = True, max_facts: int | None = None) -> KG2MDResult | None:
-        """Load a raw KG (Graph, file path, or RDF text) and run KG2MD on it."""
+                materialize: bool = True, max_facts: int | None = None,
+                tbox: Graph | str | Path | bytes | None = None) -> KG2MDResult | None:
+        """Load a raw KG and run KG2MD on it. ``source`` is the ABox when ``tbox`` is given,
+        otherwise a combined KG (Graph, file path, or RDF text)."""
         name = _slug(name)
         g = _as_graph(source, fmt)
+        tb = _as_graph(tbox, fmt) if tbox is not None else None
         self.raw[name] = g
+        self.inputs.setdefault(name, {"tbox_files": [], "abox_files": []})
         if not materialize:
             self.store.put(name, data_graph(name), g)
             self._invalidate()
             return None
-        res = run_kg2md(g, classifier=self.classifier, max_facts=max_facts)
+        res = run_kg2md(g, classifier=self.classifier, max_facts=max_facts, tbox=tb)
         self.results[name] = res
         self.store.put(name, schema_graph(name), res.schema)
         self.store.put(name, data_graph(name), res.data)
@@ -90,32 +95,13 @@ class KG2Analyzer:
             self.store.identity.remove((None, None, None))
         t_parse = time.perf_counter()
         report_kgs = []
-        for name, (g, paths) in kgs.items():
-            res = self.load_kg(name, g, max_facts=max_facts)
-            report_kgs.append({
-                "kg": name, "files": paths, "triples": len(g), "otsu_threshold": round(res.selection.threshold, 4),
-                "classes": len(res.profiles),
-                "cubes": [{"fact_class": local_name(c.fact_class), "dataset": str(c.dataset),
-                           "observations": c.observations, "measures": len(c.measures), "dimensions": len(c.dimensions),
-                           "fact_preservation": c.audit["fact_preservation"], "measure_fidelity": c.audit["measure_fidelity"]}
-                          for c in res.cubes],
-            })
+        for name, kg in kgs.items():
+            self.inputs[name] = {"tbox_files": kg.tbox_files, "abox_files": kg.abox_files}
+            self.load_kg(name, kg.abox, max_facts=max_facts, tbox=kg.tbox)
+            report_kgs.append(self._kg_summary(name))
         t_mdkg = time.perf_counter()
         supplied = sum(self.load_identity(g) for _, g in identity_files)
-        pairs, added = [], 0
-        if auto_link:
-            names = sorted(self.results)
-            for i, a in enumerate(names):
-                for b in names[i + 1:]:
-                    out = self.discover_links(a, b, threshold=link_threshold)
-                    new = [(c["left"], c["right"]) for c in out["candidates"] if c["score"] >= link_threshold and not c["known"]]
-                    self.add_links(new)
-                    added += len(new)
-                    if new:
-                        pairs.append({"kg_a": a, "kg_b": b, "links": [
-                            {"left": c["left"], "right": c["right"], "left_label": c["left_label"],
-                             "right_label": c["right_label"], "score": c["score"]}
-                            for c in out["candidates"] if (c["left"], c["right"]) in new]})
+        pairs, added = self._auto_link(link_threshold) if auto_link else ([], 0)
         t_link = time.perf_counter()
         if not reset:  # adding to an existing set: keep earlier KGs in the report
             new_names = {k["kg"] for k in report_kgs}
@@ -132,23 +118,127 @@ class KG2Analyzer:
         }
         return self.last_report
 
+    def _auto_link(self, threshold: float) -> tuple[list[dict], int]:
+        """Discover owl:sameAs links between every pair of local MDKGs; add those scoring >= threshold."""
+        names = sorted(k for k, ep in self.store.sources.items() if hasattr(ep, "dataset"))
+        pairs, added = [], 0
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                out = self.discover_links(a, b, threshold=threshold)
+                new = [(c["left"], c["right"]) for c in out["candidates"] if c["score"] >= threshold and not c["known"]]
+                self.add_links(new)
+                added += len(new)
+                if new:
+                    pairs.append({"kg_a": a, "kg_b": b, "links": [
+                        {"left": c["left"], "right": c["right"], "left_label": c["left_label"],
+                         "right_label": c["right_label"], "score": c["score"]}
+                        for c in out["candidates"] if (c["left"], c["right"]) in new]})
+        return pairs, added
+
+    def load_mdkgs(self, files: list[RdfFile], auto_link: bool = True, link_threshold: float = 0.6,
+                   reset: bool = False) -> dict:
+        """Load MDKGs saved from Build (``<kg>.mdkg.trig``, N-Quads, or a zip of them) plus optional
+        owl:sameAs files. Nothing is re-run: the QB4OLAP schema and observation graphs are used as saved."""
+        from rdflib import Dataset
+
+        from kg2analyzer.ingest import expand, is_identity_graph, parse
+        from kg2analyzer.store import GRAPHS, IDENTITY_GRAPH
+
+        QB_DATASET = URIRef("http://purl.org/linked-data/cube#DataSet")
+        RDF_TYPE = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+        hint = "is not an MDKG. Build it in step 1 and load the saved .mdkg.trig (schema + data graphs)."
+        found: dict[str, dict] = {}
+        identity_files: list[tuple[str, Graph]] = []
+        for f in expand(files):
+            if f.fmt in ("trig", "nquads"):
+                ds = Dataset()
+                ds.parse(data=f.data.decode("utf-8"), format=f.fmt)
+                for ctx in ds.graphs():
+                    iri = str(ctx.identifier)
+                    if not len(ctx) or not iri.startswith(GRAPHS):
+                        continue
+                    if iri == str(IDENTITY_GRAPH):
+                        identity_files.append((f.path, ctx))
+                        continue
+                    kg, _, role = iri[len(GRAPHS):].partition("/")
+                    entry = found.setdefault(kg, {"files": [], "schema": None, "data": None})
+                    entry[role or "data"] = ctx
+                    if f.path not in entry["files"]:
+                        entry["files"].append(f.path)
+            else:
+                g = parse(f)
+                if is_identity_graph(g):
+                    identity_files.append((f.path, g))
+                else:
+                    raise ValueError(f"{f.path} {hint}")
+        for kg, e in found.items():
+            if e["schema"] is None or e["data"] is None or (None, RDF_TYPE, QB_DATASET) not in e["schema"]:
+                raise ValueError(f"{', '.join(e['files'])} {hint}")
+        if not found and not identity_files:
+            raise ValueError(f"The upload {hint}")
+        if reset:
+            for kg in list(self.store.sources):
+                self.remove_kg(kg)
+            self.store.identity.remove((None, None, None))
+        for kg, e in sorted(found.items()):
+            self.store.put(kg, schema_graph(kg), e["schema"])
+            self.store.put(kg, data_graph(kg), e["data"])
+            self.inputs[kg] = {"mdkg_files": e["files"]}
+        self._invalidate()
+        supplied = sum(self.load_identity(g) for _, g in identity_files)
+        pairs, added = self._auto_link(link_threshold) if auto_link else ([], 0)
+        return {"mdkgs": self.loaded_mdkgs(),
+                "identity": {"supplied_files": [p for p, _ in identity_files], "supplied_links": supplied,
+                             "auto_link": auto_link, "links_added": added, "pairs": pairs,
+                             "total_links": len(self.store.identity) // 2,
+                             "clusters": len(set(self.store.identity_clusters().values()))}}
+
+    def loaded_mdkgs(self) -> list[dict]:
+        """The MDKGs available for querying: cubes, measures, dimensions and observation counts."""
+        out = []
+        for kg in sorted(k for k, ep in self.store.sources.items() if hasattr(ep, "dataset")):
+            cubes = []
+            for c in (c for c in self.catalog.cubes if c.kg == kg):
+                n = self.store.query(f"SELECT (COUNT(?o) AS ?n) WHERE {{ GRAPH <{c.graph}> {{ ?o "
+                                     f"<http://purl.org/linked-data/cube#dataSet> <{c.dataset}> }} }}").rows[0]["n"]
+                cubes.append({"fact_class": local_name(c.fact_class), "dataset": c.dataset, "observations": int(n or 0),
+                              "measures": len(c.measures), "dimensions": len(c.dimensions)})
+            inp = self.inputs.get(kg, {})
+            out.append({"kg": kg, "files": inp.get("mdkg_files") or inp.get("abox_files") or [], "cubes": cubes})
+        return out
+
+    def _kg_summary(self, name: str) -> dict:
+        """One MDKG as reported to callers: TBox/ABox inputs, Otsu threshold, cubes and audit, warnings."""
+        res = self.results[name]
+        inp = self.inputs.get(name, {"tbox_files": [], "abox_files": []})
+        warnings = []
+        if not res.tbox_triples:
+            warnings.append("No TBox supplied: classes and properties were inferred from the ABox alone.")
+        if res.undeclared_properties:
+            warnings.append(f"{len(res.undeclared_properties)} ABox propert{'y is' if len(res.undeclared_properties) == 1 else 'ies are'} "
+                            "not declared in the TBox (still profiled).")
+        if not res.cubes:
+            warnings.append("No fact class found: no class has instances that carry numeric measures and link to others.")
+        return {
+            "kg": name, "files": sorted(set(inp["tbox_files"]) | set(inp["abox_files"])),
+            "tbox_files": inp["tbox_files"], "abox_files": inp["abox_files"],
+            "tbox_triples": res.tbox_triples, "abox_triples": res.abox_triples or len(self.raw.get(name, ())),
+            "triples": res.tbox_triples + (res.abox_triples or len(self.raw.get(name, ()))),
+            "undeclared_properties": res.undeclared_properties, "warnings": warnings,
+            "otsu_threshold": round(res.selection.threshold, 4), "classes": len(res.profiles),
+            "cubes": [{"fact_class": local_name(c.fact_class), "dataset": str(c.dataset),
+                       "observations": c.observations, "measures": len(c.measures), "dimensions": len(c.dimensions),
+                       "fact_preservation": c.audit["fact_preservation"], "measure_fidelity": c.audit["measure_fidelity"]}
+                      for c in res.cubes],
+        }
+
     def overview(self) -> dict:
         """Every loaded MDKG (fact cubes, audit, input files) and the current identity links, labelled."""
-        files = {k["kg"]: k.get("files", []) for k in (self.last_report or {}).get("kgs", [])}
         labels: dict[str, str] = {}
         for g in self._graphs().values():
             for s, o in g.subject_objects(URIRef("http://www.w3.org/2000/01/rdf-schema#label")):
                 labels.setdefault(str(s), str(o))
-        kgs = []
-        for name, res in sorted(self.results.items()):
-            kgs.append({
-                "kg": name, "files": sorted(files.get(name, [])), "triples": len(self.raw.get(name, ())),
-                "otsu_threshold": round(res.selection.threshold, 4), "classes": len(res.profiles),
-                "cubes": [{"fact_class": local_name(c.fact_class), "dataset": str(c.dataset),
-                           "observations": c.observations, "measures": len(c.measures), "dimensions": len(c.dimensions),
-                           "fact_preservation": c.audit["fact_preservation"], "measure_fidelity": c.audit["measure_fidelity"]}
-                          for c in res.cubes],
-            })
+        kgs = [self._kg_summary(name) for name in sorted(self.results)]
         pairs = sorted({tuple(sorted((str(a), str(b)))) for a, _, b in self.store.identity.triples((None, OWL.sameAs, None))
                         if str(a) != str(b)})
         links = [{"left": a, "right": b, "left_label": labels.get(a), "right_label": labels.get(b),
@@ -204,6 +294,7 @@ class KG2Analyzer:
         self.store.remove_kg(name)
         self.results.pop(name, None)
         self.raw.pop(name, None)
+        self.inputs.pop(name, None)
         self._invalidate()
 
     def _invalidate(self):

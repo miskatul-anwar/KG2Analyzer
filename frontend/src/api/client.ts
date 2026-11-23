@@ -99,6 +99,8 @@ export interface PipelineReport {
 
 export interface OverviewKg {
   kg: string; files: string[]; triples: number; otsu_threshold: number; classes: number;
+  tbox_files: string[]; abox_files: string[]; tbox_triples: number; abox_triples: number;
+  undeclared_properties: string[]; warnings: string[];
   cubes: PipelineReport["kgs"][number]["cubes"];
 }
 export interface IdentityLink { left: string; right: string; left_label: string | null; right_label: string | null; left_kg: string; right_kg: string }
@@ -107,6 +109,22 @@ export interface Member { iri: string; label: string }
 export interface JoinOption { left_dim: string; right_dim: string; link: "identity" | "shared"; aligned: number; label: string }
 
 export class ApiError extends Error {}
+
+/** The three sections are independent backend workspaces. */
+export type Ws = "build" | "query" | "ask";
+
+export interface LoadedMdkg {
+  kg: string; files: string[];
+  cubes: { fact_class: string; dataset: string; observations: number; measures: number; dimensions: number }[];
+}
+export interface MdkgList { mdkgs: LoadedMdkg[]; identity_links: number; clusters: number }
+export interface MdkgLoadReport {
+  mdkgs: LoadedMdkg[];
+  identity: { supplied_files: string[]; supplied_links: number; auto_link: boolean; links_added: number; total_links: number; clusters: number };
+}
+
+/** Append `ws=` to an API path (which may already carry a query string). */
+export const withWs = (path: string, ws: Ws) => `${path}${path.includes("?") ? "&" : "?"}ws=${ws}`;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
@@ -117,32 +135,37 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   return body as T;
 }
-const post = <T>(path: string, body: unknown) =>
-  request<T>(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const get = <T>(ws: Ws, path: string) => request<T>(withWs(path, ws));
+const post = <T>(ws: Ws, path: string, body: unknown) =>
+  request<T>(withWs(path, ws), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const upload = <T>(ws: Ws, path: string, form: FormData) => request<T>(withWs(path, ws), { method: "POST", body: form });
 
 export const api = {
-  status: () => request<Status>("/api/status"),
-  catalog: () => request<Catalog>("/api/catalog"),
-  pipeline: (form: FormData) => request<PipelineReport>("/api/pipeline", { method: "POST", body: form }),
-  pipelineReport: () => request<PipelineReport | Record<string, never>>("/api/pipeline/report"),
-  uploadKg: (form: FormData) => request<Phase1Report>("/api/kgs", { method: "POST", body: form }),
-  deleteKg: (kg: string) => request<{ removed: string }>(`/api/kgs/${encodeURIComponent(kg)}`, { method: "DELETE" }),
-  uploadIdentity: (form: FormData) => request<{ links_added: number }>("/api/identity", { method: "POST", body: form }),
-  attachRemote: (name: string, url: string) => post<{ attached: string }>("/api/remote", { name, url }),
-  phase1: (kg: string) => request<Phase1Report>(`/api/kgs/${encodeURIComponent(kg)}/phase1`),
+  status: (ws: Ws) => get<Status>(ws, "/api/status"),
+  catalog: (ws: Ws) => get<Catalog>(ws, "/api/catalog"),
+  reset: (ws: Ws) => post<{ reset: boolean }>(ws, "/api/reset", {}),
+  deleteKg: (ws: Ws, kg: string) => request<{ removed: string }>(withWs(`/api/kgs/${encodeURIComponent(kg)}`, ws), { method: "DELETE" }),
+  // Build: raw KGs (TBox + ABox) -> MDKGs
+  pipeline: (form: FormData) => upload<PipelineReport>("build", "/api/pipeline", form),
+  overview: () => get<Overview>("build", "/api/overview"),
+  phase1: (kg: string) => get<Phase1Report>("build", `/api/kgs/${encodeURIComponent(kg)}/phase1`),
+  discover: (body: { kg_a: string; kg_b: string; threshold: number }) => post<DiscoverResult>("build", "/api/links/discover", body),
+  addLinks: (pairs: [string, string][]) => post<{ links_added: number }>("build", "/api/links", { pairs }),
+  mdkgFileUrl: (kg: string) => withWs(`/api/kgs/${encodeURIComponent(kg)}/mdkg.trig`, "build"),
+  mdkgZipUrl: () => withWs("/api/mdkg.zip", "build"),
+  identityUrl: () => withWs("/api/identity.ttl", "build"),
+  // Query / Ask: load saved MDKG files, then analyse them
+  loadMdkgs: (ws: Ws, form: FormData) => upload<MdkgLoadReport>(ws, "/api/mdkgs", form),
+  mdkgs: (ws: Ws) => get<MdkgList>(ws, "/api/mdkgs"),
   olap: (body: { kg: string; measure: string; group_by: [string, string | null][]; filters: [string, string, string | null][]; aggregate: string | null }) =>
-    post<OlapResult>("/api/olap", body),
+    post<OlapResult>("query", "/api/olap", body),
   compare: (body: { left: [string, string, string]; right: [string, string, string]; link: string }) =>
-    post<CrossCompare>("/api/crosscube/compare", body),
-  communities: (body: { projection: string; algorithm: string; kgs: string[] | null }) => post<CommunityReport>("/api/communities", body),
-  discover: (body: { kg_a: string; kg_b: string; threshold: number }) => post<DiscoverResult>("/api/links/discover", body),
-  addLinks: (pairs: [string, string][]) => post<{ links_added: number }>("/api/links", { pairs }),
-  overview: () => request<Overview>("/api/overview"),
+    post<CrossCompare>("query", "/api/crosscube/compare", body),
   members: (kg: string, dim: string, level: string | null) =>
-    request<{ members: Member[] }>(`/api/members?${new URLSearchParams({ kg, dim, ...(level ? { level } : {}) })}`),
-  joins: (a: string, b: string) => request<{ options: JoinOption[] }>(`/api/joins?${new URLSearchParams({ a, b })}`),
-  ask: (question: string) => post<Answer>("/api/ask", { question }),
-  suggestions: () => request<{ questions: string[] }>("/api/suggestions"),
-  setTranslator: (spec: string) => post<{ translator: string }>("/api/translator", { spec }),
-  sparql: (query: string, kg: string | null) => post<SparqlResult>("/api/sparql", { query, kg }),
+    get<{ members: Member[] }>("query", `/api/members?${new URLSearchParams({ kg, dim, ...(level ? { level } : {}) })}`),
+  joins: (a: string, b: string) => get<{ options: JoinOption[] }>("query", `/api/joins?${new URLSearchParams({ a, b })}`),
+  sparql: (query: string, kg: string | null) => post<SparqlResult>("query", "/api/sparql", { query, kg }),
+  ask: (question: string) => post<Answer>("ask", "/api/ask", { question }),
+  suggestions: () => get<{ questions: string[] }>("ask", "/api/suggestions"),
+  setTranslator: (spec: string) => post<{ translator: string }>("ask", "/api/translator", { spec }),
 };

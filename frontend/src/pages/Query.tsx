@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Catalog, type CatalogCube, type CrossCompare } from "@/api/client";
 import { useCatalog, useJoins, useMembers, useStatus } from "@/api/hooks";
+import { MdkgLoader } from "@/components/MdkgLoader";
 import { Card, Chip, Code, DataTable, Empty, ErrorBox, GroupSelect, Kpi, LoadingBlock, RowsTable, Segmented, Spinner, Warning } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +17,15 @@ const human = (iri: string) => localName(iri).replace(/([a-z0-9])([A-Z])/g, "$1 
 const split = (v: string) => { const [a, b] = v.split("|"); return [a ?? "", b ?? ""] as const; };
 
 export default function QueryPage() {
-  const { data: cat, isLoading } = useCatalog();
+  return (
+    <MdkgLoader ws="query" title="Load MDKGs to query">
+      <QueryBody />
+    </MdkgLoader>
+  );
+}
+
+function QueryBody() {
+  const { data: cat, isLoading } = useCatalog("query");
   const tab = useUi((s) => s.queryTab);
   const setTab = useUi((s) => s.setQueryTab);
   if (isLoading) return <LoadingBlock rows={6} />;
@@ -24,8 +33,8 @@ export default function QueryPage() {
     return (
       <Empty>
         <div className="flex flex-col items-center gap-3">
-          <span>No MDKGs yet. Build them from your knowledge graphs first.</span>
-          <Button asChild><Link to="/build">Go to Build MDKGs<ArrowRight className="size-4" /></Link></Button>
+          <span>The loaded files contain no cubes.</span>
+          <Button asChild><Link to="/build">Build MDKGs in step 1<ArrowRight className="size-4" /></Link></Button>
         </div>
       </Empty>
     );
@@ -327,7 +336,7 @@ function MiniBars({ title, data, color }: { title: string; data: { k: string; v:
 /* ------------------------------------------------------------------------------------------- sparql */
 
 function SparqlTab() {
-  const { data: st } = useStatus();
+  const { data: st } = useStatus("query");
   const query = useUi((s) => s.sparql);
   const setQuery = useUi((s) => s.setSparql);
   const run = useMutation({ mutationFn: ({ q, kg }: { q: string; kg: string | null }) => api.sparql(q, kg) });

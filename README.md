@@ -17,37 +17,30 @@ KG2Analyzer turns raw RDF/OWL knowledge graphs into QB4OLAP cubes and hosts them
 
 Python tooling is [uv](https://docs.astral.sh/uv/): `backend/pyproject.toml` + `backend/uv.lock` pin everything (Python 3.12 via `.python-version`).
 
-**Input: a set of knowledge graphs. Output: one MDKG per KG, an identity graph linking them, and every analysis.**
-Give it any mix of:
+**Three independent steps, connected only by files you keep:**
 
-| Shape | Example | Becomes KG |
-|---|---|---|
-| one file per KG | `retail.ttl` | `retail` |
-| TBox + ABox pair | `energy_tbox.nt` + `energy_abox.nt` | `energy` |
-| one folder per KG | `finance/TBox.ttl` + `finance/ABox.ttl` | `finance` |
-| zip archive of the above | `kgs.zip` | one KG per folder (or the zip's name) |
-| owl:sameAs file (optional) | `links.ttl` | added to the identity graph |
+1. **Build MDKGs**: give each knowledge graph its **TBox** (schema) and **ABox** (instances). KG2MD turns each into an MDKG, links the KGs, and you **save** the MDKGs (`<kg>.mdkg.trig` + `identity.ttl`) to a folder of your choice (or download `mdkg.zip`).
+2. **Query**: load the MDKG files you want, then query them (roll-up, slice, cross-MDKG joins, SPARQL).
+3. **Ask**: load MDKG files (its own selection) and ask in plain language.
 
-Formats: Turtle, N-Triples, RDF/XML, OWL, JSON-LD, N-Quads, TriG. Identity links between the KGs are discovered automatically (score ≥ 0.6; `--no-link` to skip).
-
-**Web app**, preloaded with your KGs (or drop them on the Workspace page):
+TBox/ABox input: one row per KG with a TBox and an ABox slot. Bulk drops are assigned by name (`*_tbox` / `*_abox`, `schema`, `data`, `tbox/` and `abox/` folders, zips); a single combined file is split by content (schema triples to the TBox, the rest to the ABox). As in the KG2MD notebook, TBox entities are protected from instance inference, and ABox properties the TBox does not declare are reported.
 
 ```bash
 cd frontend && npm ci && npm run build
 ```
 ```bash
-cd backend && uv sync && uv run kg2analyzer serve --kgs /path/to/my_kgs
+cd backend && uv sync && uv run kg2analyzer serve
 ```
 
-Open http://127.0.0.1:8000. The app starts empty when `--kgs` is omitted; drop your KGs on the Workspace page.
+Open http://127.0.0.1:8000. Optional preloading: `--kgs <raw KGs>` fills Build; `--mdkgs <saved MDKGs>` fills Query and Ask.
 
-**Batch / CLI** (no UI), writing one `<kg>.mdkg.trig` per KG plus `identity.ttl` and `report.json`:
+**Batch / CLI** (no UI): build writes one `<kg>.mdkg.trig` per KG plus `identity.ttl` and `report.json`; ask loads saved MDKGs:
 
 ```bash
 cd backend && uv run kg2analyzer build /path/to/my_kgs --out mdkg
 ```
 ```bash
-cd backend && uv run kg2analyzer ask "Total sales by product category" --kgs /path/to/my_kgs
+cd backend && uv run kg2analyzer ask "Total sales by product category" --mdkgs mdkg/
 ```
 
 **UI development** (hot reload; Vite proxies `/api` and `/sparql` to the backend on :8000):
@@ -80,16 +73,19 @@ cd backend && KG2A_TRANSLATOR=ollama uv run kg2analyzer serve --kgs /path/to/my_
 # cd backend && uv run python
 from kg2analyzer.analyzer import KG2Analyzer
 
+builder = KG2Analyzer()
+builder.ingest_paths(["my_kgs/"])          # TBox + ABox per KG -> MDKG, identity links discovered
+open("sales.mdkg.trig", "w").write(builder.mdkg_trig("sales"))
+
 az = KG2Analyzer()
-report = az.ingest_paths(["my_kgs/"])      # every KG -> MDKG, identity links discovered
-az.mdkg_trig("sales")                      # one MDKG as TriG (schema + observation graphs)
+az.load_mdkgs(read_paths(["sales.mdkg.trig", "finance.mdkg.trig"]))   # from kg2analyzer.ingest import read_paths
 az.cross_cube(("sales", "customer", "amount"), ("finance", "trader", "tradeAmount"))   # pushdown
 az.olap("sales", "amount", group_by=[("product", "Category")])
 az.communities("identity", "louvain")
 az.ask("Total sales by product category")
 ```
 
-REST docs are at `/docs`. `/sparql` and `/sparql/{kg}` implement the SPARQL 1.1 Protocol, so one KG2Analyzer can federate another (`POST /api/remote`).
+REST docs are at `/docs`. Every endpoint takes `?ws=build|query|ask` (default `build`): the three sections are separate workspaces. `/sparql` and `/sparql/{kg}` implement the SPARQL 1.1 Protocol, so one KG2Analyzer can federate another (`POST /api/remote`).
 
 ## Reproducing the thesis results
 

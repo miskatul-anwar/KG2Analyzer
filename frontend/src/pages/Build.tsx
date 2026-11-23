@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { PiCubeFocusDuotone, PiGraphDuotone, PiTreeStructureDuotone } from "react-icons/pi";
-import { TbArrowRight, TbCircleCheck, TbDownload, TbLink, TbPlus, TbRefresh, TbSearch, TbTrash } from "react-icons/tb";
+import { TbAlertTriangle, TbCircleCheck, TbDeviceFloppy, TbDownload, TbLink, TbPlus, TbRefresh, TbSearch, TbTrash } from "react-icons/tb";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, type IdentityLink, type OverviewKg, type PipelineReport } from "@/api/client";
@@ -16,17 +16,29 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { localName } from "@/lib/format";
+import { saveAllMdkgs, saveOneMdkg } from "@/lib/save";
 import { useUi } from "@/store";
 
-function announce(r: PipelineReport) {
+async function save(kgs: string[]) {
+  try {
+    const where = await saveAllMdkgs(kgs);
+    if (where) toast.success("MDKGs saved", { description: `${where}. Load them in Query or Ask.` });
+  } catch (e) {
+    toast.error("Could not save", { description: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function announce(r: PipelineReport, all: string[]) {
   toast.success(`Built ${r.kgs.length} MDKG${r.kgs.length === 1 ? "" : "s"} in ${r.seconds.total}s`, {
     description: r.identity.auto_link ? `${r.identity.links_added} identity link${r.identity.links_added === 1 ? "" : "s"} discovered · ${r.identity.clusters} shared entities` : undefined,
+    action: { label: "Save", onClick: () => void save(all.length ? all : r.kgs.map((k) => k.kg)) },
+    duration: 10000,
   });
 }
 
 export default function BuildPage() {
   const { data: ov, isLoading } = useOverview();
-  const { data: cat } = useCatalog();
+  const { data: cat } = useCatalog("build");
   const [panel, setPanel] = useState<"" | "add" | "replace">("");
   const openKg = useUi((s) => s.openKg);
   const setOpenKg = useUi((s) => s.setOpenKg);
@@ -46,7 +58,7 @@ export default function BuildPage() {
           <p className="mx-auto mt-3 max-w-xl text-ink-2">Drop the whole set. Each KG becomes a multidimensional KG with cubes, measures and hierarchies, and the KGs are linked so you can query and ask across all of them.</p>
         </div>
         <div className="rounded-2xl border border-border bg-card/80 p-5 shadow-xl shadow-black/5 backdrop-blur">
-          <Pipeline replace hero onDone={announce} />
+          <Pipeline replace hero onDone={(r) => announce(r, [])} />
         </div>
         <Reveal className="mt-8 grid gap-3 sm:grid-cols-3">
           {([[PiCubeFocusDuotone, "Build", "Fact classes, measures and hierarchies are found automatically."],
@@ -70,11 +82,15 @@ export default function BuildPage() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setPanel("add")}><TbPlus />Add KGs</Button>
           <Button variant="outline" onClick={() => setPanel("replace")}><TbRefresh />Start over</Button>
-          <Button variant="outline" asChild><a href="/api/mdkg.zip" download="mdkg.zip"><TbDownload />Download all</a></Button>
-          <Button asChild><Link to="/query">Query them<TbArrowRight /></Link></Button>
+          <Button variant="outline" asChild><a href={api.mdkgZipUrl()} download="mdkg.zip"><TbDownload />.zip</a></Button>
+          <Button onClick={() => void save(ov.kgs.map((k) => k.kg))}><TbDeviceFloppy />Save MDKGs…</Button>
         </div>
       </PageHeader>
 
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-brand/25 bg-brand/5 px-4 py-2.5 text-sm text-ink-2">
+        <TbDeviceFloppy className="size-4 text-brand" />
+        <span><b className="text-ink">Save your MDKGs</b> to a folder of your choice, then load them in <Link to="/query" className="font-medium text-brand hover:underline">Query</Link> or <Link to="/ask" className="font-medium text-brand hover:underline">Ask</Link>. The three steps share files, not state.</span>
+      </div>
       <div className="mb-5 flex flex-wrap gap-3">
         <Kpi value={ov.kgs.length} label="MDKGs" />
         <Kpi value={cubes.length} label="fact cubes" />
@@ -112,7 +128,7 @@ export default function BuildPage() {
             <DialogTitle>{panel === "add" ? "Add knowledge graphs to this set" : "Start over with a new set"}</DialogTitle>
             <DialogDescription>{panel === "replace" ? "The current MDKGs and identity links will be replaced." : "New KGs are built and linked to the ones already loaded."}</DialogDescription>
           </DialogHeader>
-          <Pipeline replace={panel === "replace"} onDone={(r) => { announce(r); setPanel(""); }} />
+          <Pipeline replace={panel === "replace"} onDone={(r) => { announce(r, panel === "add" ? [...ov.kgs.map((k) => k.kg), ...r.kgs.map((k) => k.kg)] : []); setPanel(""); }} />
         </DialogContent>
       </Dialog>
     </>
@@ -120,8 +136,8 @@ export default function BuildPage() {
 }
 
 function MdkgCard({ k, active, onOpen }: { k: OverviewKg; active: boolean; onOpen: () => void }) {
-  const refresh = useRefreshStore();
-  const del = useMutation({ mutationFn: () => api.deleteKg(k.kg), onSuccess: () => { void refresh(); toast(`Removed ${k.kg}`); } });
+  const refresh = useRefreshStore("build");
+  const del = useMutation({ mutationFn: () => api.deleteKg("build", k.kg), onSuccess: () => { void refresh(); toast(`Removed ${k.kg}`); } });
   const ok = k.cubes.length > 0 && k.cubes.every((c) => c.fact_preservation === 1 && c.measure_fidelity === 1);
   return (
     <GlowCard data-reveal active={active} className="flex cursor-pointer flex-col gap-3" onClick={onOpen}>
@@ -130,7 +146,7 @@ function MdkgCard({ k, active, onOpen }: { k: OverviewKg; active: boolean; onOpe
           <span className="flex size-9 items-center justify-center rounded-lg bg-brand/10 text-brand"><PiCubeFocusDuotone className="size-5" /></span>
           <div>
             <div className="font-semibold">{k.kg}</div>
-            <div className="text-xs text-ink-3">{k.triples.toLocaleString()} triples · {k.classes} classes · τ* {k.otsu_threshold}</div>
+            <div className="text-xs text-ink-3">TBox {k.tbox_triples.toLocaleString()} · ABox {k.abox_triples.toLocaleString()} triples · {k.classes} classes · τ* {k.otsu_threshold}</div>
           </div>
         </div>
         <Tooltip>
@@ -144,10 +160,16 @@ function MdkgCard({ k, active, onOpen }: { k: OverviewKg; active: boolean; onOpe
         {k.cubes.length ? k.cubes.map((c) => <Chip key={c.dataset} tone="accent">{c.fact_class} · {c.observations} obs · {c.measures} measures</Chip>)
           : <Chip tone="warn">no fact class found</Chip>}
       </div>
+      {k.warnings.map((w) => (
+        <div key={w} className="flex items-start gap-1.5 text-xs text-warn" title={k.undeclared_properties.join("\n")}><TbAlertTriangle className="mt-0.5 size-3.5 shrink-0" />{w}</div>
+      ))}
       <div className="mt-auto flex items-center gap-2 text-xs">
         {ok ? <span className="inline-flex items-center gap-1 text-good"><TbCircleCheck className="size-3.5" />all facts &amp; measures preserved</span>
           : k.cubes.length ? <span className="text-bad">audit: values not preserved</span> : null}
-        <a className="ml-auto inline-flex items-center gap-1 text-ink-2 hover:text-brand" href={`/api/kgs/${k.kg}/mdkg.trig`} download onClick={(e) => e.stopPropagation()}><TbDownload className="size-3.5" />.trig</a>
+        <button className="ml-auto inline-flex items-center gap-1 text-ink-2 hover:text-brand" onClick={(e) => {
+          e.stopPropagation();
+          saveOneMdkg(k.kg).then((w) => w && toast.success(w)).catch((err) => toast.error(String(err)));
+        }}><TbDeviceFloppy className="size-3.5" />Save .trig</button>
       </div>
     </GlowCard>
   );
@@ -174,7 +196,7 @@ function FindLinks({ kgs }: { kgs: string[] }) {
   const [a, setA] = useState(kgs[0]);
   const [b, setB] = useState(kgs[1] ?? kgs[0]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
-  const refresh = useRefreshStore();
+  const refresh = useRefreshStore("build");
   const discover = useMutation({
     mutationFn: () => api.discover({ kg_a: a, kg_b: b, threshold: 0.5 }),
     onSuccess: (r) => setPicked(new Set(r.candidates.map((c, i) => (c.score >= 0.5 && !c.known ? i : -1)).filter((i) => i >= 0))),

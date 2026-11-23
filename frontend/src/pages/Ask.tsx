@@ -4,10 +4,11 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { PiSparkleDuotone } from "react-icons/pi";
 import { TbArrowUp, TbCircleCheck, TbCircleX, TbShieldX, TbTrash } from "react-icons/tb";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Answer } from "@/api/client";
 import { useRefreshStore, useStatus, useSuggestions } from "@/api/hooks";
+import { MdkgLoader } from "@/components/MdkgLoader";
 import { DotBackdrop, TextGenerate } from "@/components/fx";
 import { Chip, Code, ErrorBox, GroupSelect, RowsTable } from "@/components/kit";
 import { Button } from "@/components/ui/button";
@@ -17,19 +18,26 @@ import { useUi } from "@/store";
 import { toast } from "sonner";
 
 export default function AskPage() {
+  return (
+    <MdkgLoader ws="ask" title="Load MDKGs to ask about">
+      <AskBody />
+    </MdkgLoader>
+  );
+}
+
+function AskBody() {
   const chat = useUi((s) => s.chat);
   const push = useUi((s) => s.pushAnswer);
   const clear = useUi((s) => s.clearChat);
   const [q, setQ] = useState("");
   const [fresh, setFresh] = useState<number>(-1);
-  const { data: st } = useStatus();
+  const { data: st } = useStatus("ask");
   const { data: sug } = useSuggestions();
-  const refresh = useRefreshStore();
+  const refresh = useRefreshStore("ask");
   const end = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const nav = useNavigate();
   const examples = sug?.questions ?? [];
-  const noData = st && st.cubes === 0;
 
   const ask = useMutation({
     mutationFn: api.ask,
@@ -67,11 +75,6 @@ export default function AskPage() {
       </div>
       <ErrorBox error={tr.error} />
 
-      {noData ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card/60 px-6 py-16 text-center text-ink-2">
-          Build MDKGs first, then ask about them. <Link to="/build" className="font-medium text-brand hover:underline">Go to step 1 →</Link>
-        </div>
-      ) : (
         <>
           <div className="flex flex-col gap-4 pb-4">
             {chat.length === 0 && !ask.isPending && (
@@ -123,7 +126,6 @@ export default function AskPage() {
             </form>
           </div>
         </>
-      )}
     </div>
   );
 }

@@ -7,8 +7,16 @@ Multidimensional analytics and natural-language querying across knowledge graphs
 ### Phase I: KG2MD
 
 **Raw KG**:
-An input RDF/OWL graph (TBox + ABox) with no multidimensional markup.
+An input RDF/OWL knowledge graph with no multidimensional markup, given as a TBox and an ABox.
 _Avoid_: source data, input graph
+
+**TBox**:
+The schema part of a raw KG: classes, properties and axioms (domain, range, subclass).
+_Avoid_: ontology file, schema file (when the role is meant)
+
+**ABox**:
+The instance part of a raw KG: individuals, their types, links and literal values.
+_Avoid_: data file, instances file (when the role is meant)
 
 **Fact class**:
 A class whose instances are measured events (sales, trades, readings); each instance becomes one observation.
@@ -45,6 +53,14 @@ _Avoid_: data cube
 **MDKG**:
 The multidimensional knowledge graph built from one raw KG: its QB4OLAP schema graph plus its observation graph, holding one cube per fact class.
 _Avoid_: output graph, cube (a cube is one fact class inside an MDKG)
+
+**MDKG file**:
+A saved MDKG: TriG holding its schema graph and observation graph (`<kg>.mdkg.trig`), optionally zipped with `identity.ttl`. The only thing the three sections exchange.
+_Avoid_: export, dump
+
+**Workspace**:
+One section's own store (build, query or ask); workspaces never share state.
+_Avoid_: session, project
 
 **Delivery**:
 The set of input files handed to the pipeline; it is grouped into raw KGs (one file, a TBox/ABox pair, a folder, or a zip) plus optional identity files.

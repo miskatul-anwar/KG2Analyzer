@@ -5,7 +5,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { PiCubeFocusDuotone, PiGraphDuotone } from "react-icons/pi";
 import { TbChecks, TbMessageChatbot, TbMoon, TbSearch, TbSun, TbTable } from "react-icons/tb";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { api } from "@/api/client";
+import { api, type Ws } from "@/api/client";
 import { useCatalog, useStatus, useSuggestions } from "@/api/hooks";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Page } from "@/components/fx";
@@ -31,16 +31,18 @@ const STEPS = [
 
 export default function App() {
   const [theme, toggle] = useTheme();
-  const { data: st } = useStatus();
-  const qc = useQueryClient();
   const location = useLocation();
+  const section = (["query", "ask"].find((w) => location.pathname.startsWith(`/${w}`)) ?? "build") as Ws;
+  const { data: built } = useStatus("build");
+  const { data: st } = useStatus(section);
+  const qc = useQueryClient();
   const [palette, setPalette] = useState(false);
-  const ready = (st?.cubes ?? 0) > 0;
+  const ready = (built?.cubes ?? 0) > 0;
 
   // Warm the caches every step needs, so switching steps is instant.
   useEffect(() => {
-    void qc.prefetchQuery({ queryKey: ["catalog"], queryFn: api.catalog, staleTime: Infinity });
-    void qc.prefetchQuery({ queryKey: ["overview"], queryFn: api.overview, staleTime: Infinity });
+    void qc.prefetchQuery({ queryKey: ["build", "overview"], queryFn: api.overview, staleTime: Infinity });
+    for (const ws of ["query", "ask"] as const) void qc.prefetchQuery({ queryKey: [ws, "mdkgs"], queryFn: () => api.mdkgs(ws), staleTime: Infinity });
   }, [qc]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((p) => !p); } };
@@ -88,7 +90,7 @@ export default function App() {
                       <PiGraphDuotone className="size-3.5 text-brand" />{st.cubes} cube{st.cubes === 1 ? "" : "s"} · {Math.floor(st.identity_links / 2)} links
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>{st.kgs.length} MDKGs · NL translator: {st.translator}</TooltipContent>
+                  <TooltipContent>{section === "build" ? "Built in step 1" : `Loaded in ${section}`}: {st.kgs.length} MDKGs{section === "ask" ? ` · NL translator: ${st.translator}` : ""}</TooltipContent>
                 </Tooltip>
               )}
               <Tooltip>
@@ -105,7 +107,7 @@ export default function App() {
           <Suspense fallback={<Spinner label="loading…" />}>
             <AnimatePresence mode="wait">
               <Routes location={location} key={location.pathname.split("/")[1]}>
-                <Route path="/" element={st ? <Navigate to={ready ? "/query" : "/build"} replace /> : <Spinner label="connecting…" />} />
+                <Route path="/" element={<Navigate to="/build" replace />} />
                 <Route path="/build" element={<Page><BuildPage /></Page>} />
                 <Route path="/query" element={<Page><QueryPage /></Page>} />
                 <Route path="/ask" element={<Page><AskPage /></Page>} />
@@ -125,7 +127,7 @@ export default function App() {
 /** ⌘K: jump to a step, open a measure in the query builder, or ask a suggested question. */
 function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const nav = useNavigate();
-  const { data: cat } = useCatalog();
+  const { data: cat } = useCatalog("query");
   const { data: sug } = useSuggestions();
   const setQuery = useUi((s) => s.setQuery);
   const go = (fn: () => void) => { fn(); onOpenChange(false); };

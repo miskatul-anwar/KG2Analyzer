@@ -2,6 +2,12 @@
 
     uv run kg2analyzer serve --port 8000          (or: uv run uvicorn kg2analyzer.server:app)
 
+The three sections are independent workspaces, chosen per request with ``?ws=``:
+
+* ``build``  raw KGs (TBox + ABox) -> MDKGs, which the user saves as files
+* ``query``  MDKG files the user loads -> structured / cross-MDKG queries
+* ``ask``    MDKG files the user loads -> natural-language questions
+
 ``/sparql`` (integrated) and ``/sparql/{kg}`` (one source) speak the SPARQL
 1.1 Protocol, so another KG2Analyzer can attach this one as a federated remote.
 """
@@ -13,7 +19,7 @@ from dataclasses import asdict
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,7 +33,18 @@ WEB_DIST = Path(os.environ.get("KG2A_WEB_DIST", Path(__file__).resolve().parents
 app = FastAPI(title="KG2Analyzer", version="1.0.0",
               description="Multidimensional analytics and natural-language querying across knowledge graphs.")
 LOCK = threading.RLock()
-AZ = KG2Analyzer(translator=os.environ.get("KG2A_TRANSLATOR"))
+WORKSPACES: dict[str, KG2Analyzer] = {ws: KG2Analyzer(translator=os.environ.get("KG2A_TRANSLATOR"))
+                                      for ws in ("build", "query", "ask")}
+AZ = WORKSPACES["build"]  # back-compat alias
+
+
+def workspace(ws: str = Query("build", description="build | query | ask")) -> KG2Analyzer:
+    if ws not in WORKSPACES:
+        raise HTTPException(404, f"unknown workspace {ws!r}; use build, query or ask")
+    return WORKSPACES[ws]
+
+
+W = Depends(workspace)
 
 
 def _clean(o):
@@ -60,26 +77,26 @@ app.add_middleware(CORSMiddleware, allow_origins=os.environ.get("KG2A_CORS", "ht
 
 # ------------------------------------------------------------------ status / loading
 @app.get("/api/status")
-def status():
+def status(a: KG2Analyzer = W):
     def f():
-        return ok({"kgs": list(AZ.store.sources), "graphs": AZ.store.graph_stats(),
-                   "cubes": len(AZ.catalog.cubes), "identity_links": len(AZ.store.identity),
-                   "translator": AZ.nl.translator.name})
+        return ok({"kgs": list(a.store.sources), "graphs": a.store.graph_stats(),
+                   "cubes": len(a.catalog.cubes), "identity_links": len(a.store.identity),
+                   "translator": a.nl.translator.name})
     return guarded(f)
 
 
 @app.post("/api/kgs")
 async def upload_kg(name: str = Form(...), file: UploadFile = File(...), fmt: str | None = Form(None),
-                    max_facts: int | None = Form(None)):
+                    max_facts: int | None = Form(None), a: KG2Analyzer = W):
     data = await file.read()
     if not fmt and file.filename:
         from kg2analyzer.analyzer import FORMATS
         fmt = FORMATS.get(Path(file.filename).suffix.lower())
 
     def f():
-        AZ.load_kg(name, data, fmt, max_facts=max_facts or None)
-        kg = [k for k in AZ.results if k == name.lower() or k == "".join(c for c in name.lower() if c.isalnum())][0]
-        return ok(AZ.phase1_report(kg))
+        a.load_kg(name, data, fmt, max_facts=max_facts or None)
+        kg = [k for k in a.results if k == name.lower() or k == "".join(c for c in name.lower() if c.isalnum())][0]
+        return ok(a.phase1_report(kg))
     return guarded(f)
 
 
@@ -89,19 +106,29 @@ class RemoteReq(BaseModel):
 
 
 @app.post("/api/remote")
-def attach_remote(req: RemoteReq):
-    return guarded(lambda: (AZ.attach_remote(req.name, req.url), ok({"attached": req.name}))[1])
+def attach_remote(req: RemoteReq, a: KG2Analyzer = W):
+    return guarded(lambda: (a.attach_remote(req.name, req.url), ok({"attached": req.name}))[1])
+
+
+@app.post("/api/reset")
+def reset_workspace(a: KG2Analyzer = W):
+    for kg in list(a.store.sources):
+        a.remove_kg(kg)
+    a.store.identity.remove((None, None, None))
+    a.last_report = {}
+    a._invalidate()
+    return ok({"reset": True})
 
 
 @app.delete("/api/kgs/{kg}")
-def delete_kg(kg: str):
-    return guarded(lambda: (AZ.remove_kg(kg), ok({"removed": kg}))[1])
+def delete_kg(kg: str, a: KG2Analyzer = W):
+    return guarded(lambda: (a.remove_kg(kg), ok({"removed": kg}))[1])
 
 
 @app.post("/api/identity")
-async def upload_identity(file: UploadFile = File(...)):
+async def upload_identity(file: UploadFile = File(...), a: KG2Analyzer = W):
     data = await file.read()
-    return guarded(lambda: ok({"links_added": AZ.load_identity(data)}))
+    return guarded(lambda: ok({"links_added": a.load_identity(data)}))
 
 
 class LinksReq(BaseModel):
@@ -109,18 +136,18 @@ class LinksReq(BaseModel):
 
 
 @app.post("/api/links")
-def add_links(req: LinksReq):
-    return guarded(lambda: ok({"links_added": AZ.add_links(req.pairs), "identity_triples": len(AZ.store.identity)}))
+def add_links(req: LinksReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok({"links_added": a.add_links(req.pairs), "identity_triples": len(a.store.identity)}))
 
 
 @app.get("/api/catalog")
-def catalog():
-    return guarded(lambda: ok(AZ.catalog.to_dict() | {"prompt_context": AZ.catalog.prompt_context()}))
+def catalog(a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.catalog.to_dict() | {"prompt_context": a.catalog.prompt_context()}))
 
 
 @app.get("/api/kgs/{kg}/phase1")
-def phase1(kg: str):
-    return guarded(lambda: ok(AZ.phase1_report(kg)))
+def phase1(kg: str, a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.phase1_report(kg)))
 
 
 # ------------------------------------------------------------------ Phase II
@@ -133,13 +160,13 @@ class CrossReq(BaseModel):
 
 
 @app.post("/api/crosscube")
-def crosscube(req: CrossReq):
-    return guarded(lambda: ok(asdict(AZ.cross_cube(req.left, req.right, req.link, req.strategy, req.mode))))
+def crosscube(req: CrossReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok(asdict(a.cross_cube(req.left, req.right, req.link, req.strategy, req.mode))))
 
 
 @app.post("/api/crosscube/compare")
-def crosscube_compare(req: CrossReq):
-    return guarded(lambda: ok(AZ.compare_strategies(req.left, req.right, req.link)))
+def crosscube_compare(req: CrossReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.compare_strategies(req.left, req.right, req.link)))
 
 
 class OlapReq(BaseModel):
@@ -151,8 +178,8 @@ class OlapReq(BaseModel):
 
 
 @app.post("/api/olap")
-def olap(req: OlapReq):
-    return guarded(lambda: ok(asdict(AZ.olap(req.kg, req.measure, req.group_by, req.filters, req.aggregate))))
+def olap(req: OlapReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok(asdict(a.olap(req.kg, req.measure, req.group_by, req.filters, req.aggregate))))
 
 
 class CommReq(BaseModel):
@@ -163,8 +190,8 @@ class CommReq(BaseModel):
 
 
 @app.post("/api/communities")
-def communities(req: CommReq):
-    return guarded(lambda: ok(AZ.communities(req.projection, req.algorithm, req.kgs, req.k)))
+def communities(req: CommReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.communities(req.projection, req.algorithm, req.kgs, req.k)))
 
 
 class DiscoverReq(BaseModel):
@@ -174,8 +201,8 @@ class DiscoverReq(BaseModel):
 
 
 @app.post("/api/links/discover")
-def discover(req: DiscoverReq):
-    return guarded(lambda: ok(AZ.discover_links(req.kg_a, req.kg_b, req.threshold)))
+def discover(req: DiscoverReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.discover_links(req.kg_a, req.kg_b, req.threshold)))
 
 
 class SparqlReq(BaseModel):
@@ -184,10 +211,10 @@ class SparqlReq(BaseModel):
 
 
 @app.post("/api/sparql")
-def sparql(req: SparqlReq):
+def sparql(req: SparqlReq, a: KG2Analyzer = W):
     def f():
         try:
-            return ok(AZ.sparql(req.query, req.kg))
+            return ok(a.sparql(req.query, req.kg))
         except PermissionError:
             raise
         except Exception as e:  # noqa: BLE001  (parse errors etc.)
@@ -201,29 +228,29 @@ class AskReq(BaseModel):
 
 
 @app.post("/api/ask")
-def ask(req: AskReq):
-    return guarded(lambda: ok(AZ.ask(req.question).to_dict()))
+def ask(req: AskReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.ask(req.question).to_dict()))
 
 
 @app.get("/api/overview")
-def overview():
-    return guarded(lambda: ok(AZ.overview()))
+def overview(a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.overview()))
 
 
 @app.get("/api/members")
-def members(kg: str, dim: str, level: str | None = None):
-    return guarded(lambda: ok({"members": AZ.members(kg, dim, level)}))
+def members(kg: str, dim: str, level: str | None = None, a: KG2Analyzer = W):
+    return guarded(lambda: ok({"members": a.members(kg, dim, level)}))
 
 
 @app.get("/api/joins")
-def joins(a: str, b: str):
-    return guarded(lambda: ok({"options": AZ.join_options(a, b)}))
+def joins(a: str, b: str, az: KG2Analyzer = W):
+    return guarded(lambda: ok({"options": az.join_options(a, b)}))
 
 
 @app.get("/api/suggestions")
-def suggestions():
+def suggestions(a: KG2Analyzer = W):
     """Example questions over the loaded MDKGs; each one is validated and returns rows."""
-    return guarded(lambda: ok({"questions": AZ.suggest_questions()}))
+    return guarded(lambda: ok({"questions": a.suggest_questions()}))
 
 
 class TranslatorReq(BaseModel):
@@ -231,17 +258,17 @@ class TranslatorReq(BaseModel):
 
 
 @app.post("/api/translator")
-def translator(req: TranslatorReq):
-    return guarded(lambda: ok({"translator": AZ.set_translator(req.spec)}))
+def translator(req: TranslatorReq, a: KG2Analyzer = W):
+    return guarded(lambda: ok({"translator": a.set_translator(req.spec)}))
 
 
 @app.get("/api/export.nq", response_class=PlainTextResponse)
-def export():
-    return guarded(lambda: PlainTextResponse(AZ.export_nquads(), media_type="application/n-quads"))
+def export(a: KG2Analyzer = W):
+    return guarded(lambda: PlainTextResponse(a.export_nquads(), media_type="application/n-quads"))
 
 
 # ------------------------------------------------------------------ SPARQL 1.1 Protocol
-async def _protocol(request: Request, kg: str | None):
+async def _protocol(request: Request, kg: str | None, a: KG2Analyzer):
     if request.method == "GET":
         q = request.query_params.get("query")
     else:
@@ -258,7 +285,7 @@ async def _protocol(request: Request, kg: str | None):
 
         if MUTATION.search(_strip_literals(q)):
             raise PermissionError("read-only endpoint")
-        res = (AZ.store.integrated if kg is None else AZ.store.sources[kg].dataset).query(q)
+        res = (a.store.integrated if kg is None else a.store.sources[kg].dataset).query(q)
         vars_, _ = result_rows(res)
         bindings = []
         for r in res:
@@ -280,45 +307,67 @@ async def _protocol(request: Request, kg: str | None):
 
 
 @app.api_route("/sparql", methods=["GET", "POST"])
-async def sparql_integrated(request: Request):
-    return await _protocol(request, None)
+async def sparql_integrated(request: Request, a: KG2Analyzer = W):
+    return await _protocol(request, None, a)
 
 
 @app.api_route("/sparql/{kg}", methods=["GET", "POST"])
-async def sparql_source(kg: str, request: Request):
-    if kg not in AZ.store.sources:
+async def sparql_source(kg: str, request: Request, a: KG2Analyzer = W):
+    if kg not in a.store.sources:
         raise HTTPException(404, f"unknown KG {kg}")
-    return await _protocol(request, kg)
+    return await _protocol(request, kg, a)
 
 
 # ------------------------------------------------------------------ batch pipeline: KGs -> MDKGs
 @app.post("/api/pipeline")
 async def pipeline(files: list[UploadFile] = File(...), auto_link: bool = Form(True), threshold: float = Form(0.6),
-                   reset: bool = Form(True), max_facts: int | None = Form(None)):
+                   reset: bool = Form(True), max_facts: int | None = Form(None), a: KG2Analyzer = W):
     """Upload a set of raw KGs (files, TBox/ABox pairs, zips, owl:sameAs files): build every MDKG and link them."""
     from kg2analyzer.ingest import RdfFile
 
     batch = [RdfFile(f.filename or "kg.ttl", await f.read()) for f in files]
-    return guarded(lambda: ok(AZ.ingest(batch, auto_link=auto_link, link_threshold=threshold, reset=reset,
+    return guarded(lambda: ok(a.ingest(batch, auto_link=auto_link, link_threshold=threshold, reset=reset,
                                         max_facts=max_facts or None)))
 
 
+@app.post("/api/mdkgs")
+async def load_mdkgs(files: list[UploadFile] = File(...), auto_link: bool = Form(True), threshold: float = Form(0.6),
+                     reset: bool = Form(False), a: KG2Analyzer = W):
+    """Load MDKG files saved from Build (.mdkg.trig / .nq / .zip, plus optional owl:sameAs files)."""
+    from kg2analyzer.ingest import RdfFile
+
+    batch = [RdfFile(f.filename or "mdkg.trig", await f.read()) for f in files]
+    return guarded(lambda: ok(a.load_mdkgs(batch, auto_link=auto_link, link_threshold=threshold, reset=reset)))
+
+
+@app.get("/api/mdkgs")
+def list_mdkgs(a: KG2Analyzer = W):
+    return guarded(lambda: ok({"mdkgs": a.loaded_mdkgs(), "identity_links": len(a.store.identity) // 2,
+                               "clusters": len(set(a.store.identity_clusters().values()))}))
+
+
 @app.get("/api/pipeline/report")
-def pipeline_report():
-    return guarded(lambda: ok(AZ.last_report))
+def pipeline_report(a: KG2Analyzer = W):
+    return guarded(lambda: ok(a.last_report))
 
 
 @app.get("/api/kgs/{kg}/mdkg.trig")
-def mdkg_trig(kg: str):
-    return guarded(lambda: PlainTextResponse(AZ.mdkg_trig(kg), media_type="application/trig",
+def mdkg_trig(kg: str, a: KG2Analyzer = W):
+    return guarded(lambda: PlainTextResponse(a.mdkg_trig(kg), media_type="application/trig",
                                              headers={"Content-Disposition": f'attachment; filename="{kg}.mdkg.trig"'}))
 
 
+@app.get("/api/identity.ttl")
+def identity_ttl(a: KG2Analyzer = W):
+    return guarded(lambda: PlainTextResponse(a.store.identity.serialize(format="turtle"), media_type="text/turtle",
+                                             headers={"Content-Disposition": 'attachment; filename="identity.ttl"'}))
+
+
 @app.get("/api/mdkg.zip")
-def mdkg_zip():
+def mdkg_zip(a: KG2Analyzer = W):
     from fastapi.responses import Response
 
-    return guarded(lambda: Response(AZ.mdkg_zip(), media_type="application/zip",
+    return guarded(lambda: Response(a.mdkg_zip(), media_type="application/zip",
                                     headers={"Content-Disposition": 'attachment; filename="mdkg.zip"'}))
 
 

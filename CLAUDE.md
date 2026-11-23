@@ -9,12 +9,13 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
   - Phase II `store.py`, `catalog.py`, `planner.py`, `olap.py`; graph analytics `graphml.py`, `linking.py`
   - Phase III `nl/` (validator, translators, interface)
 - `models/*.joblib` are the trained measure classifiers; `kg2md/features.py` must stay compatible with how they were trained (keep its tag join sorted: unsorted set order made results depend on the hash seed).
-- Input is a *set* of raw KGs: `ingest.py` groups files (single files, TBox/ABox pairs, per-KG folders, zips, owl:sameAs files) and `KG2Analyzer.ingest` builds one MDKG per KG and auto-links them.
+- Input is a *set* of raw KGs, each with a **TBox and an ABox**: `ingest.py` assigns files to KGs and roles (explicit `<kg>/tbox|abox/` paths, name patterns, or a content split of combined files) and `KG2Analyzer.ingest` builds one MDKG per KG (`run_kg2md(abox, tbox=...)`) and auto-links them.
+- The three sections are **separate workspaces** (`server.WORKSPACES`, `?ws=build|query|ask` on every endpoint). They share files, never state: Build saves MDKG files (`mdkg_trig`, `mdkg_zip`, identity.ttl); Query and Ask load them with `KG2Analyzer.load_mdkgs` (no KG2MD re-run). See ADR 0007.
 - `server.py` serves `frontend/dist` (SPA fallback) when it exists.
 
 ## Frontend (`frontend/`)
 
-- Three steps only: **Build** (KGs → MDKGs, `pages/Build.tsx`), **Query** across MDKGs (`pages/Query.tsx`), **Ask** in NL (`pages/Ask.tsx`). Community detection stays API-only (`/api/communities`).
+- Three independent steps: **Build** (TBox + ABox per KG → MDKGs, saved via `lib/save.ts`), **Query** and **Ask**, each loading its own MDKG files through `components/MdkgLoader.tsx`. Every `api.*` call names its workspace. Community detection stays API-only (`/api/communities`).
 - UI stack: shadcn/ui in `src/components/ui/` (generated, keep edits minimal), app wrappers in `src/components/kit.tsx`, motion/GSAP/Aceternity-style effects in `src/components/fx.tsx`, react-icons for icons, Sigma.js 3 + graphology for graphs (`MdkgMap.tsx`; Sigma 4 is a different API, see ADR 0006).
 - UI state that must survive reloads (query selections, chat, open panel, theme) lives in the Zustand store `src/store.ts`; server data lives in TanStack Query with `staleTime: Infinity` (mutations invalidate everything).
 - The brand colour token is `brand` (`text-brand`, `bg-brand`); `accent` is shadcn's subtle hover grey.
@@ -31,7 +32,7 @@ Python is managed with **uv** (never pip): add dependencies with `uv add <pkg>` 
 - Backend tests: `cd backend && uv run pytest -q` (all must pass before committing)
 - Frontend checks: `cd frontend && npm run typecheck && npm run build`
 - Build MDKGs: `cd backend && uv run kg2analyzer build <kgs...> --out mdkg`
-- Dev: `cd backend && uv run kg2analyzer serve --kgs <kgs...>` (starts empty without `--kgs`), then `cd frontend && npm run dev`
+- Dev: `cd backend && uv run kg2analyzer serve [--kgs <raw KGs>] [--mdkgs <saved MDKGs>]` (starts empty), then `cd frontend && npm run dev`
 - Thesis tables: `cd backend && uv run pytest tests/test_thesis_tables.py -q`
 
 ## Conventions
