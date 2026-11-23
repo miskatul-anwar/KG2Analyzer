@@ -138,3 +138,15 @@ def test_suggested_questions_are_all_answerable_on_the_users_kgs(built):
 
 def test_no_suggestions_without_kgs():
     assert KG2Analyzer(translator="rules").suggest_questions() == []
+
+
+def test_overview_reflects_every_loaded_mdkg_and_identity_link(built):
+    az, _ = built
+    ov = az.overview()
+    assert sorted(k["kg"] for k in ov["kgs"]) == ["building", "energy", "finance", "healthcare", "logistics", "retail", "supplychain"]
+    retail = next(k for k in ov["kgs"] if k["kg"] == "retail")
+    assert retail["cubes"][0]["fact_class"] == "SaleTransaction" and retail["files"] == ["retail/ABox.ttl", "retail/TBox.ttl"]
+    assert ov["identity"]["clusters"] == 4
+    alice = next(l for l in ov["identity"]["links"] if {l["left"], l["right"]} == {
+        "http://example.org/retail#cust_1001", "http://example.org/finance#trader_Alice"})
+    assert alice["left_label"] == alice["right_label"] == "Alice Johnson"

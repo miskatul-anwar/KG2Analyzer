@@ -71,3 +71,16 @@ def test_federation_over_http_to_a_remote_kg2analyzer(client, monkeypatch):
     res = az.cross_cube(("retail", "customer", "saleTotalAmount"), ("finance", "trader", "tradeAmount"), mode="federated")
     alice = next(x for x in res.rows if x["left_entity"].endswith("cust_1001"))
     assert float(alice["right_total"]) == pytest.approx(52620.00)
+
+
+def test_members_endpoint_lists_level_members_with_labels(client):
+    r = client.get("/api/members", params={"kg": "retail", "dim": "product", "level": "Category"}).json()
+    assert sorted(m["label"] for m in r["members"]) == ["Apparel", "Beverages", "Electronics"]
+
+
+def test_join_options_offer_identity_and_conformed_date_joins(client):
+    retail_finance = client.get("/api/joins", params={"a": "retail", "b": "finance"}).json()["options"]
+    assert {"left_dim": "http://example.org/retail#customer", "right_dim": "http://example.org/finance#trader",
+            "link": "identity"} in [{k: o[k] for k in ("left_dim", "right_dim", "link")} for o in retail_finance]
+    assert any(o["link"] == "shared" for o in retail_finance)  # both cubes have the conformed calendar
+    assert retail_finance[0]["link"] == "identity" and retail_finance[0]["aligned"] >= 2  # best option first

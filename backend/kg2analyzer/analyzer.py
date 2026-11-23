@@ -117,6 +117,10 @@ class KG2Analyzer:
                              "right_label": c["right_label"], "score": c["score"]}
                             for c in out["candidates"] if (c["left"], c["right"]) in new]})
         t_link = time.perf_counter()
+        if not reset:  # adding to an existing set: keep earlier KGs in the report
+            new_names = {k["kg"] for k in report_kgs}
+            report_kgs = [k for k in (self.last_report or {}).get("kgs", [])
+                          if k["kg"] in self.results and k["kg"] not in new_names] + report_kgs
         self.last_report = {
             "kgs": report_kgs,
             "identity": {"supplied_files": [p for p, _ in identity_files], "supplied_links": supplied,
@@ -127,6 +131,30 @@ class KG2Analyzer:
                         "linking": round(t_link - t_mdkg, 3), "total": round(t_link - t0, 3)},
         }
         return self.last_report
+
+    def overview(self) -> dict:
+        """Every loaded MDKG (fact cubes, audit, input files) and the current identity links, labelled."""
+        files = {k["kg"]: k.get("files", []) for k in (self.last_report or {}).get("kgs", [])}
+        labels: dict[str, str] = {}
+        for g in self._graphs().values():
+            for s, o in g.subject_objects(URIRef("http://www.w3.org/2000/01/rdf-schema#label")):
+                labels.setdefault(str(s), str(o))
+        kgs = []
+        for name, res in sorted(self.results.items()):
+            kgs.append({
+                "kg": name, "files": sorted(files.get(name, [])), "triples": len(self.raw.get(name, ())),
+                "otsu_threshold": round(res.selection.threshold, 4), "classes": len(res.profiles),
+                "cubes": [{"fact_class": local_name(c.fact_class), "dataset": str(c.dataset),
+                           "observations": c.observations, "measures": len(c.measures), "dimensions": len(c.dimensions),
+                           "fact_preservation": c.audit["fact_preservation"], "measure_fidelity": c.audit["measure_fidelity"]}
+                          for c in res.cubes],
+            })
+        pairs = sorted({tuple(sorted((str(a), str(b)))) for a, _, b in self.store.identity.triples((None, OWL.sameAs, None))
+                        if str(a) != str(b)})
+        links = [{"left": a, "right": b, "left_label": labels.get(a), "right_label": labels.get(b),
+                  "left_kg": self._kg_of(a), "right_kg": self._kg_of(b)} for a, b in pairs]
+        return {"kgs": kgs, "remote": [k for k in self.store.sources if k not in self.results],
+                "identity": {"links": links, "clusters": len(set(self.store.identity_clusters().values()))}}
 
     def ingest_paths(self, paths: list[str | Path], **kw) -> dict:
         """``ingest`` from files, folders or zip archives on disk."""
@@ -214,6 +242,51 @@ class KG2Analyzer:
             for strat in ("naive", "pushdown"):
                 r = self.cross_cube(left, right, link, strat, mode)
                 out[f"{mode}/{strat}"] = asdict(r)
+        return out
+
+    def members(self, kg: str, dim: str, level: str | None = None, limit: int = 1000) -> list[dict]:
+        """Labelled members of one level of a dimension (for filter pickers)."""
+        from kg2analyzer.olap import _resolve_level
+
+        cube = self.catalog.cube_for(kg)
+        d = cube.dimension(dim) if cube else None
+        if d is None:
+            raise KeyError(f"unknown dimension {dim!r} in {kg!r}")
+        lvl = _resolve_level(d, level)
+        q = (f"SELECT DISTINCT ?m ?l WHERE {{ GRAPH <{cube.graph}> {{ ?m a <{lvl}> . "
+             f"OPTIONAL {{ ?m <http://www.w3.org/2000/01/rdf-schema#label> ?l }} }} }} ORDER BY ?l ?m LIMIT {int(limit)}")
+        return [{"iri": r["m"], "label": r["l"] or local_name(r["m"])} for r in self.store.query(q).rows]
+
+    def join_options(self, kg_a: str, kg_b: str) -> list[dict]:
+        """Dimension pairs on which two MDKGs can be combined, best first.
+
+        ``identity``: members of the two dimensions fall in the same owl:sameAs cluster.
+        ``shared``: the two dimensions use the same member IRIs (a conformed dimension such as a calendar).
+        ``aligned`` counts the entities that would actually join.
+        """
+        ca, cb = self.catalog.cube_for(kg_a), self.catalog.cube_for(kg_b)
+        if ca is None or cb is None:
+            raise KeyError("both KGs need an MDKG")
+
+        def used(cube, d):
+            q = f"SELECT DISTINCT ?m WHERE {{ GRAPH <{cube.graph}> {{ ?o <{d.prop}> ?m }} }}"
+            return {r["m"] for r in self.store.query(q).rows}
+
+        clusters = self.store.identity_clusters()
+        out = []
+        for da in ca.dimensions:
+            ma = used(ca, da)
+            for db in cb.dimensions:
+                mb = used(cb, db)
+                shared = len(ma & mb)
+                ids_a = {clusters[x] for x in ma if x in clusters}
+                ids_b = {clusters[x] for x in mb if x in clusters}
+                for link, n in (("identity", len(ids_a & ids_b)), ("shared", shared)):
+                    if n:
+                        out.append({"left_dim": da.prop, "right_dim": db.prop, "link": link, "aligned": n,
+                                    "label": f"{local_name(da.prop)} ↔ {local_name(db.prop)} "
+                                             f"({'same entity' if link == 'identity' else 'same value'}, {n} aligned)"})
+        out.sort(key=lambda o: (o["link"] != "identity", -o["aligned"]))
         return out
 
     def olap(self, kg: str, measure: str, group_by: list[tuple[str, str | None]] | None = None,

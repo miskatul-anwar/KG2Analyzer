@@ -205,6 +205,21 @@ def ask(req: AskReq):
     return guarded(lambda: ok(AZ.ask(req.question).to_dict()))
 
 
+@app.get("/api/overview")
+def overview():
+    return guarded(lambda: ok(AZ.overview()))
+
+
+@app.get("/api/members")
+def members(kg: str, dim: str, level: str | None = None):
+    return guarded(lambda: ok({"members": AZ.members(kg, dim, level)}))
+
+
+@app.get("/api/joins")
+def joins(a: str, b: str):
+    return guarded(lambda: ok({"options": AZ.join_options(a, b)}))
+
+
 @app.get("/api/suggestions")
 def suggestions():
     """Example questions over the loaded MDKGs; each one is validated and returns rows."""
