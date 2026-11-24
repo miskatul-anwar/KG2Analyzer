@@ -1,0 +1,17 @@
+@prefix : <http://example.org/bank#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:dhaka a :City ; rdfs:label "Dhaka" .
+:chattogram a :City ; rdfs:label "Chattogram" .
+
+:gulshan a :Branch ; rdfs:label "Gulshan" ; :branchCity :dhaka .
+:agrabad a :Branch ; rdfs:label "Agrabad" ; :branchCity :chattogram .
+
+:client_17 a :Client ; rdfs:label "Alice Rahman" ; :email "alice@example.org" .
+:client_42 a :Client ; rdfs:label "Dave Karim" ; :email "dave@example.org" .
+
+:t1 a :Transfer ; :client :client_17 ; :branch :gulshan ; :transferAmount "1000.00"^^xsd:decimal ; :fee "5.00"^^xsd:decimal .
+:t2 a :Transfer ; :client :client_17 ; :branch :agrabad ; :transferAmount "250.00"^^xsd:decimal ; :fee "2.50"^^xsd:decimal .
+:t3 a :Transfer ; :client :client_42 ; :branch :gulshan ; :transferAmount "4000.00"^^xsd:decimal ; :fee "10.00"^^xsd:decimal .
+:t4 a :Transfer ; :client :client_42 ; :branch :agrabad ; :transferAmount "75.00"^^xsd:decimal ; :fee "1.00"^^xsd:decimal .

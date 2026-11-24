@@ -1,0 +1,24 @@
+@prefix : <http://example.org/shop#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:dhaka a :City ; rdfs:label "Dhaka" .
+:chittagong a :City ; rdfs:label "Chittagong" .
+
+:electronics a :Category ; rdfs:label "Electronics" .
+:books a :Category ; rdfs:label "Books" .
+
+:phone a :Product ; rdfs:label "Phone" ; :inCategory :electronics .
+:laptop a :Product ; rdfs:label "Laptop" ; :inCategory :electronics .
+:novel a :Product ; rdfs:label "Novel" ; :inCategory :books .
+
+:alice a :Customer ; rdfs:label "Alice Rahman" ; :email "alice@example.org" ; :livesIn :dhaka .
+:bob a :Customer ; rdfs:label "Bob Hossain" ; :email "bob@example.org" ; :livesIn :chittagong .
+:carol a :Customer ; rdfs:label "Carol Das" ; :email "carol@example.org" ; :livesIn :dhaka .
+
+:s1 a :Sale ; :customer :alice ; :product :phone  ; :quantity 1 ; :amount "500.00"^^xsd:decimal .
+:s2 a :Sale ; :customer :alice ; :product :novel  ; :quantity 2 ; :amount "30.00"^^xsd:decimal .
+:s3 a :Sale ; :customer :bob   ; :product :laptop ; :quantity 1 ; :amount "1200.00"^^xsd:decimal .
+:s4 a :Sale ; :customer :bob   ; :product :novel  ; :quantity 1 ; :amount "15.00"^^xsd:decimal .
+:s5 a :Sale ; :customer :alice ; :product :laptop ; :quantity 1 ; :amount "1100.00"^^xsd:decimal .
+:s6 a :Sale ; :customer :carol ; :product :phone  ; :quantity 2 ; :amount "980.00"^^xsd:decimal .

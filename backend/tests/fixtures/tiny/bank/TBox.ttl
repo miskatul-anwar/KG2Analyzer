@@ -1,0 +1,17 @@
+@prefix : <http://example.org/bank#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Transfer a owl:Class ; rdfs:label "Transfer" .
+:Client a owl:Class ; rdfs:label "Client" .
+:Branch a owl:Class ; rdfs:label "Branch" .
+:City a owl:Class ; rdfs:label "City" .
+
+:client a owl:ObjectProperty ; rdfs:domain :Transfer ; rdfs:range :Client .
+:branch a owl:ObjectProperty ; rdfs:domain :Transfer ; rdfs:range :Branch .
+:branchCity a owl:ObjectProperty ; rdfs:domain :Branch ; rdfs:range :City .
+
+:transferAmount a owl:DatatypeProperty ; rdfs:domain :Transfer ; rdfs:range xsd:decimal .
+:fee a owl:DatatypeProperty ; rdfs:domain :Transfer ; rdfs:range xsd:decimal .
+:email a owl:DatatypeProperty ; rdfs:domain :Client ; rdfs:range xsd:string .

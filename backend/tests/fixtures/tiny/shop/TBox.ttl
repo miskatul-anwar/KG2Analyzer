@@ -1,0 +1,19 @@
+@prefix : <http://example.org/shop#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Sale a owl:Class ; rdfs:label "Sale" .
+:Customer a owl:Class ; rdfs:label "Customer" .
+:Product a owl:Class ; rdfs:label "Product" .
+:Category a owl:Class ; rdfs:label "Category" .
+:City a owl:Class ; rdfs:label "City" .
+
+:customer a owl:ObjectProperty ; rdfs:domain :Sale ; rdfs:range :Customer .
+:product a owl:ObjectProperty ; rdfs:domain :Sale ; rdfs:range :Product .
+:inCategory a owl:ObjectProperty ; rdfs:domain :Product ; rdfs:range :Category .
+:livesIn a owl:ObjectProperty ; rdfs:domain :Customer ; rdfs:range :City .
+
+:quantity a owl:DatatypeProperty ; rdfs:domain :Sale ; rdfs:range xsd:integer .
+:amount a owl:DatatypeProperty ; rdfs:domain :Sale ; rdfs:range xsd:decimal .
+:email a owl:DatatypeProperty ; rdfs:domain :Customer ; rdfs:range xsd:string .
