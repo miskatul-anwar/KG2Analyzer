@@ -20,7 +20,9 @@ def client():
 def test_status_and_catalog_report_the_seven_cubes(client):
     assert client.get("/api/status").json()["cubes"] == 7
     cat = client.get("/api/catalog").json()
-    assert "Retail:saleTotalAmount" in cat["prompt_context"]
+    retail = next(c for c in cat["cubes"] if c["kg"] == "retail")
+    sale = next(m for m in retail["measures"] if m["label"] == "saleTotalAmount")  # grounded in the KG's own property
+    assert sale["aggregate"] == "sum" and sale["alias"] in cat["prompt_context"]
 
 
 def test_ask_endpoint_answers_alex(client):
@@ -80,8 +82,7 @@ def test_members_endpoint_lists_level_members_with_labels(client):
 
 def test_join_options_offer_identity_and_conformed_date_joins(client):
     retail_finance = client.get("/api/joins", params={"a": "retail", "b": "finance"}).json()["options"]
-    assert {"left_dim": "http://example.org/retail#customer", "right_dim": "http://example.org/finance#trader",
-            "link": "identity"} in [{k: o[k] for k in ("left_dim", "right_dim", "link")} for o in retail_finance]
+    assert any(o["link"] == "identity" and o["label"].startswith("Customer ↔ Trader") for o in retail_finance)
     assert any(o["link"] == "shared" for o in retail_finance)  # both cubes have the conformed calendar
     assert retail_finance[0]["link"] == "identity" and retail_finance[0]["aligned"] >= 2  # best option first
 
@@ -99,7 +100,8 @@ def test_build_query_and_ask_are_separate_workspaces_connected_only_by_files(cli
     olap = client.post("/api/olap", params={"ws": "query"},
                        json={"kg": "retail", "measure": "saleTotalAmount", "group_by": [["product", "Category"]]}).json()
     assert round(sum(x["total"] for x in olap["rows"]), 2) == 2999.40
-    picked = [("files", (n, c, "application/trig")) for n, c in _zip_members(saved, {"retail.mdkg.trig", "finance.mdkg.trig"})]
+    picked = [("files", (n, c, "application/n-quads")) for n, c in _zip_members(saved, {"retail", "finance"})]
+    assert picked
     assert client.post("/api/mdkgs", params={"ws": "ask"}, files=picked).status_code == 200
     a = client.post("/api/ask", params={"ws": "ask"},
                     json={"question": "Show total retail sales and investment trade volume for our shared corporate clients"}).json()
@@ -113,4 +115,4 @@ def _zip_members(blob, names):
     import zipfile
 
     z = zipfile.ZipFile(io.BytesIO(blob))
-    return [(n, z.read(n)) for n in z.namelist() if n in names]
+    return [(n, z.read(n)) for n in z.namelist() if n.split("/")[0] in names and n.endswith("mdkg_dataset.nq")]

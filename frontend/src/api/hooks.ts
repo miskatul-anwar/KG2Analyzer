@@ -1,10 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { registerNames } from "@/lib/format";
 import { api, type CatalogCube, type Ws } from "./client";
 
 // Store-derived data only changes after a mutation, which invalidates its workspace: never refetch on a timer.
 const forever = { staleTime: Infinity, gcTime: Infinity } as const;
 export const useStatus = (ws: Ws) => useQuery({ queryKey: [ws, "status"], queryFn: () => api.status(ws), ...forever });
-export const useCatalog = (ws: Ws) => useQuery({ queryKey: [ws, "catalog"], queryFn: () => api.catalog(ws), ...forever });
+export const useCatalog = (ws: Ws) =>
+  useQuery({ queryKey: [ws, "catalog"], queryFn: () => api.catalog(ws).then((c) => { registerNames(c); return c; }), ...forever });
 export const useMdkgs = (ws: Ws) => useQuery({ queryKey: [ws, "mdkgs"], queryFn: () => api.mdkgs(ws), ...forever });
 export const useOverview = () => useQuery({ queryKey: ["build", "overview"], queryFn: api.overview, ...forever });
 export const useSuggestions = () => useQuery({ queryKey: ["ask", "suggestions"], queryFn: api.suggestions, ...forever });

@@ -90,7 +90,7 @@ export default function App() {
                       <PiGraphDuotone className="size-3.5 text-brand" />{st.cubes} cube{st.cubes === 1 ? "" : "s"} · {Math.floor(st.identity_links / 2)} links
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>{section === "build" ? "Built in step 1" : `Loaded in ${section}`}: {st.kgs.length} MDKGs{section === "ask" ? ` · NL translator: ${st.translator}` : ""}</TooltipContent>
+                  <TooltipContent>{section === "build" ? "Built in step 1" : `Loaded in ${section}`}: {st.kgs.length} MDKGs{section === "ask" ? ` · NL translator: ${st.translator}` : section === "build" ? ` · KG2MD decider: ${st.decider}` : ""}</TooltipContent>
                 </Tooltip>
               )}
               <Tooltip>

@@ -46,9 +46,9 @@ def _resolve_level(d: DimensionInfo, level: str | None) -> str:
     if level is None:
         return d.base_level
     for lv in d.levels:
-        if lv == level or local_name(lv).lower() == level.lower():
+        if lv == level or local_name(lv).lower() == level.lower() or d.level_name(lv).lower() == level.lower():
             return lv
-    raise KeyError(f"level {level!r} not in dimension {local_name(d.prop)} (levels: {[local_name(x) for x in d.levels]})")
+    raise KeyError(f"level {level!r} not in dimension {d.name} (levels: {[d.level_name(x) for x in d.levels]})")
 
 
 def _path(d: DimensionInfo, level: str, warnings: list[str]) -> str:
@@ -56,13 +56,13 @@ def _path(d: DimensionInfo, level: str, warnings: list[str]) -> str:
         return f"<{d.prop}>"
     chains = d.paths_to(level)
     if not chains:
-        raise KeyError(f"no roll-up path from {local_name(d.base_level)} to {local_name(level)}")
+        raise KeyError(f"no roll-up path from {d.level_name(d.base_level)} to {d.level_name(level)}")
     many = {s.prop for s in d.steps if s.many_to_many}
     if any(p in many for c in chains for p in c):
-        warnings.append(f"Roll-up to {local_name(level)} crosses a nonstrict (many-to-many) step: members with several "
+        warnings.append(f"Roll-up to {d.level_name(level)} crosses a nonstrict (many-to-many) step: members with several "
                         "parents are counted once per parent.")
     if len(chains) > 1:
-        warnings.append(f"{local_name(level)} is reached by {len(chains)} paths (ragged/alternative); all are unioned.")
+        warnings.append(f"{d.level_name(level)} is reached by {len(chains)} paths (ragged/alternative); all are unioned.")
     alts = "|".join("(" + "/".join(f"<{p}>" for p in c) + ")" for c in chains)
     return f"<{d.prop}>/({alts})"
 
@@ -95,7 +95,7 @@ def build_rollup(cat: Catalog, kg: str, measure: str, axes: list[Axis], filters:
         if d is None:
             raise KeyError(f"unknown dimension {ax.dimension!r}")
         lvl = _resolve_level(d, ax.level)
-        v = re.sub(r"[^A-Za-z0-9]", "_", local_name(lvl)).lower() or f"a{i}"
+        v = re.sub(r"[^A-Za-z0-9]", "_", d.level_name(lvl)).lower() or f"a{i}"
         if f"?{v}" in select or v in ("value", "total", "observations", "o"):
             v = f"{v}_{i}"
         lines.append(f"?o {_path(d, lvl, warnings)} ?{v} . OPTIONAL {{ ?{v} <{RDFS_LABEL}> ?{v}_label }}")

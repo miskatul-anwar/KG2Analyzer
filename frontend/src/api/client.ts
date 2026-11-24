@@ -8,38 +8,47 @@ export interface Status {
   cubes: number;
   identity_links: number;
   translator: string;
+  decider: string;
 }
 
-export interface CatalogMeasure { iri: string; label: string; aggregate: string; additivity: string; unit: string | null; alias: string }
+export interface CatalogMeasure { iri: string; label: string; aggregate: string; additivity: string; unit: string | null; source: string | null; alias: string }
 export interface CatalogStep { child: string; parent: string; prop: string; many_to_many: boolean }
-export interface CatalogDimension { prop: string; alias: string; base_level: string; kinds: string[]; levels: string[]; steps: CatalogStep[] }
+export interface CatalogDimension {
+  prop: string; alias: string; name: string; base_level: string; kinds: string[]; levels: string[];
+  level_names: Record<string, string>; steps: CatalogStep[];
+}
 export interface CatalogCube {
   kg: string; dataset: string; alias: string; fact_class: string; label: string; graph: string;
   measures: CatalogMeasure[]; dimensions: CatalogDimension[];
 }
 export interface Catalog { identity_links: number; prefixes: Record<string, string>; cubes: CatalogCube[]; prompt_context: string }
 
+/** One answer of KG2MD's decision model (Tev1) to one of its four multiple-choice questions. */
+export interface Decision {
+  question: "fact_class" | "aggregate" | "unit" | "level_attribute";
+  profile: Record<string, unknown>; prediction: string; confidence: number; probabilities: Record<string, number>;
+}
 export interface ClassScore {
-  iri: string; label: string; instances: number; probability: number; selected: boolean;
-  features: Record<string, number>; contributions: Record<string, number>;
+  iri: string; label: string; instances: number; probability: number; selected: boolean; excluded_by_guard: boolean;
+  referenced_ratio: number; object_properties: number; numeric_properties: number;
+}
+export interface Audit {
+  observations: number; source_facts: number | null; ghost_observations: number | null; dropped_facts: number | null;
+  measure_cells_checked: number; measure_cells_mismatched: number; fact_preservation: number | null; measure_fidelity: number | null;
 }
 export interface MeasureReport {
-  iri: string; name: string; unit: string | null; datatype: string; additivity: string; p_additive: number;
-  aggregate: string; shap: [string, number][]; lime: [string, number][];
+  iri: string; name: string; unit: string | null; aggregate: string; additivity: string; source: string | null; decision: Decision | null;
 }
-export interface DimensionReport {
-  prop: string; name: string; base_level: string; kinds: string[]; paths: string[][];
-  steps: { child: string; parent: string; prop: string; coverage: number; many_to_many: boolean }[];
-}
+export interface HierarchyReport { label: string | null; types: string[]; semantics: string | null; levels: string[]; steps: number }
+export interface DimensionReport { uri: string; label: string; base_level: string | null; degenerate: boolean; hierarchies: HierarchyReport[] }
 export interface CubeReport {
-  fact_class: string; dataset: string; label: string; observations: number;
-  audit: { source_facts: number; observations: number; ghost_observations: number; dropped_facts: number;
-    measure_cells_checked: number; measure_cells_mismatched: number; fact_preservation: number; measure_fidelity: number };
+  fact_class: string; dataset: string; label: string; key: string | null; observations: number; audit: Audit;
   measures: MeasureReport[]; dimensions: DimensionReport[];
 }
+/** What the KG2MD notebook decided and built for one KG. */
 export interface Phase1Report {
-  kg: string; closure_added_triples: number; scorer: string; otsu_threshold: number;
-  otsu_curve: [number, number][]; classes: ClassScore[]; cubes: CubeReport[];
+  kg: string; decider: string; seconds: number; otsu_threshold: number | null; classes: ClassScore[]; cubes: CubeReport[];
+  decisions: Decision[]; undeclared_properties: string[]; separated_records: number; log: string;
 }
 
 export interface OlapResult { sparql: string; columns: string[]; rows: Row[]; warnings: string[] }
@@ -86,8 +95,8 @@ export interface SparqlResult { columns: string[]; rows: Row[]; seconds: number 
 
 export interface PipelineReport {
   kgs: {
-    kg: string; files: string[]; triples: number; otsu_threshold: number; classes: number;
-    cubes: { fact_class: string; dataset: string; observations: number; measures: number; dimensions: number; fact_preservation: number; measure_fidelity: number }[];
+    kg: string; files: string[]; triples: number; otsu_threshold: number | null; classes: number; decider?: string; seconds?: number;
+    cubes: { fact_class: string; dataset: string; observations: number; measures: number; dimensions: number; fact_preservation: number | null; measure_fidelity: number | null }[];
   }[];
   identity: {
     supplied_files: string[]; supplied_links: number; auto_link: boolean; threshold: number; links_added: number; clusters: number;
@@ -98,7 +107,7 @@ export interface PipelineReport {
 }
 
 export interface OverviewKg {
-  kg: string; files: string[]; triples: number; otsu_threshold: number; classes: number;
+  kg: string; files: string[]; triples: number; otsu_threshold: number | null; classes: number; decider?: string; seconds?: number;
   tbox_files: string[]; abox_files: string[]; tbox_triples: number; abox_triples: number;
   undeclared_properties: string[]; warnings: string[];
   cubes: PipelineReport["kgs"][number]["cubes"];
@@ -151,7 +160,8 @@ export const api = {
   phase1: (kg: string) => get<Phase1Report>("build", `/api/kgs/${encodeURIComponent(kg)}/phase1`),
   discover: (body: { kg_a: string; kg_b: string; threshold: number }) => post<DiscoverResult>("build", "/api/links/discover", body),
   addLinks: (pairs: [string, string][]) => post<{ links_added: number }>("build", "/api/links", { pairs }),
-  mdkgFileUrl: (kg: string) => withWs(`/api/kgs/${encodeURIComponent(kg)}/mdkg.trig`, "build"),
+  mdkgFiles: (kg?: string) => get<{ files: { path: string; size: number }[] }>("build", `/api/mdkg/files${kg ? `?kg=${encodeURIComponent(kg)}` : ""}`),
+  mdkgFileUrl: (path: string) => withWs(`/api/mdkg/file?path=${encodeURIComponent(path)}`, "build"),
   mdkgZipUrl: () => withWs("/api/mdkg.zip", "build"),
   identityUrl: () => withWs("/api/identity.ttl", "build"),
   // Query / Ask: load saved MDKG files, then analyse them

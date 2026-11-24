@@ -20,7 +20,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from rdflib import Graph
@@ -146,6 +146,17 @@ class KgInput:
     abox: Graph
     tbox_files: list[str]
     abox_files: list[str]
+    raw_tbox: list[RdfFile] = field(default_factory=list)  # files as delivered (role-assigned files only)
+    raw_abox: list[RdfFile] = field(default_factory=list)
+    split: bool = False  # some file was split by content
+
+    def turtle(self, role: str) -> bytes:
+        """The TBox or ABox as Turtle for the KG2MD notebook. A single delivered Turtle/N-Triples file is
+        passed byte for byte (the notebook's ABox record-identity repair reads the file's own text)."""
+        raw = self.raw_tbox if role == "tbox" else self.raw_abox
+        if not self.split and len(raw) == 1 and raw[0].fmt in ("turtle", "nt"):
+            return raw[0].data
+        return (self.tbox if role == "tbox" else self.abox).serialize(format="turtle").encode("utf-8")
 
 
 def _add(target: Graph, g: Graph) -> None:
@@ -170,10 +181,13 @@ def group(files: list[RdfFile]) -> tuple[dict[str, KgInput], list[tuple[str, Gra
         if role == "tbox":
             _add(kg.tbox, g)
             kg.tbox_files.append(f.path)
+            kg.raw_tbox.append(f)
         elif role == "abox":
             _add(kg.abox, g)
             kg.abox_files.append(f.path)
+            kg.raw_abox.append(f)
         else:  # combined file: split by content
+            kg.split = True
             tb, ab = split_schema(g)
             _add(kg.tbox, tb)
             _add(kg.abox, ab)

@@ -1,82 +1,103 @@
 import { useQuery } from "@tanstack/react-query";
 import { CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from "recharts";
-import { api } from "@/api/client";
-import { Card, Chip, DataTable, ErrorBox, Kpi, SignedChip, Spinner } from "@/components/kit";
-import { SERIES } from "@/lib/format";
+import { api, type Decision } from "@/api/client";
+import { Card, Chip, DataTable, ErrorBox, Kpi, Spinner } from "@/components/kit";
+import { localName, SERIES } from "@/lib/format";
 
-/** Phase I detail for one KG: Otsu fact selection, class scores, measures with SHAP/LIME, ADW4 hierarchies, audit. */
+const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
+const QUESTION: Record<Decision["question"], string> = {
+  fact_class: "fact class?", aggregate: "aggregate", unit: "unit of measure?", level_attribute: "level attribute?",
+};
+const subject = (d: Decision) =>
+  String(d.profile.class_name ?? d.profile.measure_name ?? d.profile.property_name ?? d.profile.name ?? "");
+
+/** What the KG2MD notebook decided and built for one KG: Tev1 fact scores and Otsu split, measures, hierarchies, audit. */
 export function MdkgDetails({ kg }: { kg: string }) {
   const { data: r, isLoading, error } = useQuery({ queryKey: ["phase1", kg], queryFn: () => api.phase1(kg), staleTime: Infinity });
   if (isLoading) return <Spinner label="loading…" />;
   if (error) return <ErrorBox error={error} />;
   if (!r) return null;
+  const tau = r.otsu_threshold;
   return (
-        <div className="flex min-w-0 flex-col gap-4">
-          <Card title="Otsu fact-class selection" subtitle={<>Scorer <b>{r.scorer}</b> · RDFS closure added {r.closure_added_triples} triples · τ* = <b>{r.otsu_threshold}</b> · {r.classes.filter((c) => c.selected).length} of {r.classes.length} classes become cubes</>}>
-            <div className="h-72">
-              <ResponsiveContainer>
-                <ScatterChart margin={{ top: 10, right: 30, bottom: 60, left: 0 }}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis dataKey="rank" type="category" allowDuplicatedCategory={false} interval={0} angle={-40} textAnchor="end"
-                    tickFormatter={(i: number) => r.classes[i]?.label ?? ""} />
-                  <YAxis dataKey="probability" domain={[0, 1]} tickCount={6} width={40} />
-                  <Tooltip cursor={false} content={({ payload }) => {
-                    const c = payload?.[0]?.payload as (typeof r.classes)[number] | undefined;
-                    return c ? <div className="card px-3 py-2 text-xs"><b>{c.label}</b><br />p = {c.probability}<br />{c.selected ? "fact class" : "dimension level"}</div> : null;
-                  }} />
-                  <ReferenceLine y={r.otsu_threshold} stroke={SERIES[1]} strokeWidth={2} strokeDasharray="5 4"
-                    label={{ value: `τ* = ${r.otsu_threshold.toFixed(4)}`, position: "insideTopRight", fill: "var(--c-ink-2)", fontSize: 11 }} />
-                  <Scatter isAnimationActive={false} data={r.classes.map((c, i) => ({ ...c, rank: i }))} shape="circle">
-                    {r.classes.map((c) => <Cell key={c.iri} fill={c.selected ? SERIES[0] : "var(--c-ink-3)"} />)}
-                  </Scatter>
-                </ScatterChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex gap-4 text-xs text-ink-2">
-              <span className="flex items-center gap-1.5"><i className="size-2.5 rounded-full" style={{ background: SERIES[0] }} />fact class (p ≥ τ*)</span>
-              <span className="flex items-center gap-1.5"><i className="size-2.5 rounded-full bg-ink-3" />dimension level</span>
-            </div>
-          </Card>
-
-          <Card title="Class profiles" subtitle="Per-feature contributions to the fact logit: every decision is explainable.">
-            <DataTable rows={r.classes} columns={[
-              { key: "label", header: "class" },
-              { key: "instances", header: "instances", numeric: true },
-              { key: "probability", header: "p(fact)", numeric: true, decimals: 4 },
-              { key: "selected", header: "status", render: (c) => c.selected ? <Chip tone="good">fact</Chip> : <Chip>dimension</Chip> },
-              { key: "contributions", header: "logit contributions", render: (c) => <div className="flex flex-wrap gap-1">{Object.entries(c.contributions).map(([k, v]) => <SignedChip key={k} name={k} value={v} />)}</div> },
-            ]} />
-          </Card>
-
-          {r.cubes.map((c) => (
-            <Card key={c.dataset} title={`Cube · ${c.label}`} subtitle={<span className="mono">{c.dataset}</span>}>
-              <div className="mb-4 flex flex-wrap gap-3">
-                <Kpi value={c.audit.observations} label={`observations (${c.audit.source_facts} source facts)`} />
-                <Kpi value={`${(c.audit.fact_preservation * 100).toFixed(1)}%`} label="fact preservation" tone={c.audit.fact_preservation === 1 ? "good" : "bad"} />
-                <Kpi value={`${(c.audit.measure_fidelity * 100).toFixed(1)}%`} label={`measure fidelity · ${c.audit.measure_cells_checked} cells`} tone={c.audit.measure_fidelity === 1 ? "good" : "bad"} />
-                <Kpi value={`${c.audit.ghost_observations} / ${c.audit.dropped_facts}`} label="ghost / dropped" />
-              </div>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Measures · additivity classifier (SHAP φ and LIME weights)</h4>
-              <DataTable rows={c.measures} columns={[
-                { key: "name", header: "measure", render: (m) => <span className="font-medium">{m.name}</span> },
-                { key: "unit", header: "unit" },
-                { key: "additivity", header: "additivity", render: (m) => <Chip tone={m.additivity === "additive" ? "good" : "warn"}>{m.additivity}</Chip> },
-                { key: "p_additive", header: "p(additive)", numeric: true, decimals: 3 },
-                { key: "aggregate", header: "aggregate", render: (m) => <span className="mono">qb4o:{m.aggregate}</span> },
-                { key: "shap", header: "SHAP", render: (m) => <div className="flex max-w-md flex-wrap gap-1">{m.shap.map(([t, v]) => <SignedChip key={t} name={t} value={v} />)}</div> },
-                { key: "lime", header: "LIME", render: (m) => <div className="flex max-w-xs flex-wrap gap-1">{m.lime.slice(0, 4).map(([t, v]) => <SignedChip key={t} name={t} value={v} />)}</div> },
-              ]} />
-              <h4 className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Dimensions · ADW4 hierarchy patterns</h4>
-              <DataTable rows={c.dimensions} columns={[
-                { key: "name", header: "dimension", render: (d) => <span className="font-medium">{d.name}</span> },
-                { key: "base_level", header: "base level" },
-                { key: "kinds", header: "patterns", render: (d) => <div className="flex flex-wrap gap-1">{d.kinds.map((k) => <Chip key={k} tone="accent">{k}</Chip>)}</div> },
-                { key: "paths", header: "roll-up paths", render: (d) => d.paths.map((p, i) => <div key={i}>{p.join(" → ")}</div>) },
-                { key: "steps", header: "steps", render: (d) => d.steps.map((s, i) => (
-                  <div key={i} className="whitespace-nowrap">{s.child} <span className="text-ink-3">—{s.prop}→</span> {s.parent} <span className="text-ink-3">cov {s.coverage}{s.many_to_many && ", many-to-many"}</span></div>)) },
-              ]} />
-            </Card>
-          ))}
+    <div className="flex min-w-0 flex-col gap-4">
+      <Card title="Fact classes · Tev1 + Otsu"
+        subtitle={<>Decided by <b>{r.decider}</b> in {r.seconds}s · {tau === null ? "no score split, the best class was taken" : <>τ* = <b>{tau.toFixed(4)}</b></>} · {r.classes.filter((c) => c.selected).length} of {r.classes.length} eligible classes become cubes{r.separated_records ? ` · ${r.separated_records} reused record IRIs separated` : ""}</>}>
+        <div className="h-72">
+          <ResponsiveContainer>
+            <ScatterChart margin={{ top: 10, right: 30, bottom: 60, left: 0 }}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="rank" type="category" allowDuplicatedCategory={false} interval={0} angle={-40} textAnchor="end"
+                tickFormatter={(i: number) => r.classes[i]?.label ?? ""} />
+              <YAxis dataKey="probability" domain={[0, 1]} tickCount={6} width={40} />
+              <Tooltip cursor={false} content={({ payload }) => {
+                const c = payload?.[0]?.payload as (typeof r.classes)[number] | undefined;
+                return c ? <div className="card px-3 py-2 text-xs"><b>{c.label}</b><br />P(fact) = {c.probability.toFixed(4)}<br />
+                  {c.selected ? "fact class" : c.excluded_by_guard ? "excluded by the structural guard" : "dimension"}</div> : null;
+              }} />
+              {tau !== null && <ReferenceLine y={tau} stroke={SERIES[1]} strokeWidth={2} strokeDasharray="5 4"
+                label={{ value: `τ* = ${tau.toFixed(4)}`, position: "insideTopRight", fill: "var(--c-ink-2)", fontSize: 11 }} />}
+              <Scatter isAnimationActive={false} data={r.classes.map((c, i) => ({ ...c, rank: i }))} shape="circle">
+                {r.classes.map((c) => <Cell key={c.iri} fill={c.selected ? SERIES[0] : "var(--c-ink-3)"} />)}
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
         </div>
+        <DataTable rows={r.classes} columns={[
+          { key: "label", header: "class" },
+          { key: "instances", header: "instances", numeric: true },
+          { key: "numeric_properties", header: "numeric", numeric: true },
+          { key: "object_properties", header: "links", numeric: true },
+          { key: "referenced_ratio", header: "referenced", render: (c) => pct(c.referenced_ratio) },
+          { key: "probability", header: "P(fact)", numeric: true, decimals: 4 },
+          { key: "selected", header: "status", render: (c) => c.selected ? <Chip tone="good">fact</Chip>
+            : c.excluded_by_guard ? <Chip tone="warn" title="Most instances are referenced by other instances, or it has no measure and no link">guarded</Chip> : <Chip>dimension</Chip> },
+        ]} />
+      </Card>
+
+      {r.cubes.map((c) => (
+        <Card key={c.dataset} title={`Cube · ${c.label}`} subtitle={<span className="mono">{c.key ? `fact_classes/${c.key}/` : c.dataset}</span>}>
+          <div className="mb-4 flex flex-wrap gap-3">
+            <Kpi value={c.audit.observations} label={`observations${c.audit.source_facts !== null ? ` (${c.audit.source_facts} measured facts)` : ""}`} />
+            <Kpi value={pct(c.audit.fact_preservation)} label="fact preservation" tone={c.audit.fact_preservation === 1 ? "good" : "bad"} />
+            <Kpi value={pct(c.audit.measure_fidelity)} label={`measure fidelity · ${c.audit.measure_cells_checked} cells`} tone={c.audit.measure_fidelity === 1 ? "good" : "bad"} />
+            <Kpi value={`${c.audit.ghost_observations ?? "—"} / ${c.audit.dropped_facts ?? "—"}`} label="ghost / dropped" />
+          </div>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Measures · aggregate chosen by Tev1 (additivity follows)</h4>
+          <DataTable rows={c.measures} columns={[
+            { key: "name", header: "measure", render: (m) => <span className="font-medium">{m.name}</span> },
+            { key: "aggregate", header: "aggregate", render: (m) => <span className="mono">qb4o:{m.aggregate}</span> },
+            { key: "additivity", header: "additivity", render: (m) => <Chip tone={m.additivity === "additive" ? "good" : "warn"}>{m.additivity}</Chip> },
+            { key: "decision", header: "Tev1 probabilities", render: (m) => m.decision
+              ? <div className="flex flex-wrap gap-1">{Object.entries(m.decision.probabilities).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
+                  <Chip key={k} tone={k === m.aggregate ? "accent" : undefined}>{k} {(v * 100).toFixed(0)}%</Chip>)}</div>
+              : <span className="text-ink-3">{m.source ? "declared qb4o:aggregateFunction" : "synthetic count"}</span> },
+            { key: "unit", header: "unit", render: (m) => (m.unit ? localName(m.unit) : "—") },
+          ]} />
+          <h4 className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Dimensions · hierarchies from the hierarchy engine</h4>
+          <DataTable rows={c.dimensions} columns={[
+            { key: "label", header: "dimension", render: (d) => <span className="font-medium">{d.label.replace(/ Dimension$/, "")}</span> },
+            { key: "base_level", header: "base level", render: (d) => localName(d.base_level ?? "") },
+            { key: "hierarchies", header: "hierarchies", render: (d) => d.hierarchies.map((h, i) => (
+              <div key={i} className="flex flex-wrap items-center gap-1 py-0.5">
+                <span className="mr-1">{h.levels.map((l) => l.replace(/ Level$/, "")).join(" → ")}</span>
+                {h.types.map((t) => <Chip key={t} tone="accent">{t}</Chip>)}
+              </div>)) },
+          ]} />
+        </Card>
+      ))}
+
+      <Card title="Every Tev1 decision" subtitle="The multiple-choice questions KG2MD asked, with the model's answer and probability.">
+        <DataTable rows={r.decisions} max={400} columns={[
+          { key: "question", header: "question", render: (d) => QUESTION[d.question] },
+          { key: "profile", header: "about", render: (d) => <span className="font-medium">{subject(d)}</span> },
+          { key: "prediction", header: "answer", render: (d) => <Chip tone="accent">{d.prediction}</Chip> },
+          { key: "confidence", header: "p", numeric: true, decimals: 3 },
+        ]} />
+      </Card>
+
+      <Card title="Notebook log" subtitle="Everything the KG2MD cells printed (also saved as kg2md.log).">
+        <pre className="mono max-h-96 overflow-auto whitespace-pre text-[11px] leading-snug text-ink-2">{r.log}</pre>
+      </Card>
+    </div>
   );
 }

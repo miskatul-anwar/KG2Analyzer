@@ -21,7 +21,9 @@ from scipy import sparse
 
 QB_DATASET = URIRef("http://purl.org/linked-data/cube#dataSet")
 QB4O_MEMBER_OF = URIRef("http://purl.org/qb4olap/cubes#memberOf")
-SKIP = {RDF.type, QB_DATASET, QB4O_MEMBER_OF}
+ROLLUP_EDGE = URIRef("http://example.org/mdkg/RollupEdge")  # KG2MD notebook: reified member links
+SKIP = {RDF.type, QB_DATASET, QB4O_MEMBER_OF, URIRef("http://example.org/mdkg/rollupToAll"),
+        URIRef("http://www.w3.org/2004/02/skos/core#broader"), URIRef("http://www.w3.org/ns/prov#wasDerivedFrom")}
 
 
 def tokens(text: str) -> list[str]:
@@ -43,8 +45,9 @@ def entity_graph(graphs: dict[str, Graph], identity: Graph | None = None, member
 
     for kg, g in graphs.items():
         observations = set(g.subjects(QB_DATASET, None))
+        statements = set(g.subjects(RDF.type, ROLLUP_EDGE))
         for s, p, o in g:
-            if not isinstance(s, URIRef):
+            if not isinstance(s, URIRef) or s in statements:
                 continue
             if members_only and s in observations:
                 continue

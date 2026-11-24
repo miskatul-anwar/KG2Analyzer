@@ -116,7 +116,7 @@ export default function BuildPage() {
         <SheetContent side="right" className="w-full overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-4xl">
           <SheetHeader>
             <SheetTitle>How <span className="text-brand">{openKg}</span> became an MDKG</SheetTitle>
-            <SheetDescription>Otsu fact selection, measure additivity with SHAP/LIME, ADW4 hierarchies and the preservation audit.</SheetDescription>
+            <SheetDescription>The KG2MD notebook run: Tev1 fact scores and the Otsu split, aggregate functions, hierarchies, the audit and every decision.</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-6">{open && <MdkgDetails kg={open.kg} />}</div>
         </SheetContent>
@@ -146,7 +146,7 @@ function MdkgCard({ k, active, onOpen }: { k: OverviewKg; active: boolean; onOpe
           <span className="flex size-9 items-center justify-center rounded-lg bg-brand/10 text-brand"><PiCubeFocusDuotone className="size-5" /></span>
           <div>
             <div className="font-semibold">{k.kg}</div>
-            <div className="text-xs text-ink-3">TBox {k.tbox_triples.toLocaleString()} · ABox {k.abox_triples.toLocaleString()} triples · {k.classes} classes · τ* {k.otsu_threshold}</div>
+            <div className="text-xs text-ink-3">TBox {k.tbox_triples.toLocaleString()} · ABox {k.abox_triples.toLocaleString()} triples · {k.classes} classes{k.otsu_threshold !== null && <> · τ* {k.otsu_threshold}</>}</div>
           </div>
         </div>
         <Tooltip>
@@ -169,7 +169,7 @@ function MdkgCard({ k, active, onOpen }: { k: OverviewKg; active: boolean; onOpe
         <button className="ml-auto inline-flex items-center gap-1 text-ink-2 hover:text-brand" onClick={(e) => {
           e.stopPropagation();
           saveOneMdkg(k.kg).then((w) => w && toast.success(w)).catch((err) => toast.error(String(err)));
-        }}><TbDeviceFloppy className="size-3.5" />Save .trig</button>
+        }}><TbDeviceFloppy className="size-3.5" />Save folder</button>
       </div>
     </GlowCard>
   );

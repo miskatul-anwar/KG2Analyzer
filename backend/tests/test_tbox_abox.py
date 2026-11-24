@@ -5,6 +5,7 @@ from rdflib.namespace import OWL, RDF
 from fixtures.enterprise import build_enterprise_benchmark, ns
 from kg2analyzer.analyzer import KG2Analyzer
 from kg2analyzer.ingest import RdfFile
+from kg2analyzer.store import source_graph
 
 SCHEMA_TYPES = {OWL.Class, OWL.ObjectProperty, OWL.DatatypeProperty}
 
@@ -64,8 +65,9 @@ def test_tbox_entities_are_protected_from_instance_inference():
     # an annotation on a TBox property whose rdfs:domain would wrongly type the property itself
     tbox += b'\n<http://example.org/retail#customer> <http://example.org/vocab#note> "x" .\n<http://example.org/vocab#note> <http://www.w3.org/2000/01/rdf-schema#domain> <http://example.org/retail#Customer> .'
     az = KG2Analyzer(translator="rules")
-    az.ingest([RdfFile("retail/tbox/o.nt", tbox), RdfFile("retail/abox/d.nt", abox)], auto_link=False)
-    closure_types = {o for o in az.results["retail"].profiles for o in [o.iri]}
-    customer_prop = URIRef("http://example.org/retail#customer")
-    assert all(p.iri != customer_prop for p in az.results["retail"].profiles)
-    assert URIRef("http://example.org/retail#Customer") in closure_types
+    rep = az.ingest([RdfFile("retail/tbox/o.nt", tbox), RdfFile("retail/abox/d.nt", abox)], auto_link=False)
+    source = az.store.sources["retail"].dataset.graph(source_graph("retail"))  # the notebook's inferred source graph
+    customer_prop, customer = URIRef("http://example.org/retail#customer"), URIRef("http://example.org/retail#Customer")
+    assert (customer_prop, RDF.type, customer) not in source
+    assert any(True for _ in source.subjects(RDF.type, customer))  # real customers are still typed
+    assert kg(rep, "retail")["cubes"][0]["fact_class"] == "SaleTransaction"

@@ -21,23 +21,32 @@ from rdflib.namespace import OWL
 from kg2analyzer import planner
 from kg2analyzer.catalog import Catalog
 from kg2analyzer.graphml import detect_communities, entity_graph
-from kg2analyzer.ingest import RdfFile, group, read_paths
+from kg2analyzer.ingest import KgInput, RdfFile, group, read_paths
 from kg2analyzer.kg2md.measures import MeasureClassifier
 from kg2analyzer.kg2md.pipeline import KG2MDResult, run_kg2md
 from kg2analyzer.kg2md.profiling import local_name
 from kg2analyzer.linking import discover_links, evaluate
+from kg2analyzer.mdkg_files import HINT, Mdkg, read_mdkgs, with_member_descriptions
 from kg2analyzer.nl.interface import Answer, NLInterface
 from kg2analyzer.nl.translators import OllamaTranslator, OpenAICompatibleTranslator, Translator
 from kg2analyzer.olap import Axis, Filter, OlapResult, rollup
-from kg2analyzer.store import MultiKGStore, data_graph, schema_graph
+from kg2analyzer.store import MultiKGStore, data_graph, schema_graph, source_graph
 
+_STANDARD_NS = ("http://www.w3.org/1999/02/22-rdf-syntax-ns#", "http://www.w3.org/2000/01/rdf-schema#",
+                "http://www.w3.org/2002/07/owl#", "http://www.w3.org/2001/XMLSchema#")
 FORMATS = {".ttl": "turtle", ".nt": "nt", ".n3": "n3", ".rdf": "xml", ".owl": "xml", ".xml": "xml",
            ".jsonld": "json-ld", ".nq": "nquads", ".trig": "trig"}
 
 
 class KG2Analyzer:
-    def __init__(self, models_dir: str | Path | None = None, translator: Translator | str | None = None):
+    def __init__(self, models_dir: str | Path | None = None, translator: Translator | str | None = None,
+                 decider=None):
+        """``decider`` answers KG2MD's four questions (default: Tev1, see ``kg2md.notebook.default_decider``)."""
         self.store = MultiKGStore()
+        self.decider = decider
+        self.runs: dict[str, dict] = {}                 # kg -> KG2MD notebook run (decisions, log, timings)
+        self.mdkg_raw: dict[str, dict[str, bytes]] = {}  # kg -> the MDKG files, path -> bytes
+        self._audits: dict[tuple[str, str], dict] = {}
         self.results: dict[str, KG2MDResult] = {}
         self.raw: dict[str, Graph] = {}
         self._classifier: MeasureClassifier | None = None
@@ -79,12 +88,17 @@ class KG2Analyzer:
 
     # ---------------------------------------------------------------- batch pipeline
     def ingest(self, files: list[RdfFile], auto_link: bool = True, link_threshold: float = 0.6,
-               reset: bool = False, max_facts: int | None = None) -> dict:
+               reset: bool = False, max_facts: int | None = None, engine: str = "notebook",
+               env: dict[str, str] | None = None) -> dict:
         """A delivery of raw KGs -> one MDKG per KG -> identity graph (supplied and/or discovered).
 
         ``files`` may mix single-file KGs, TBox/ABox pairs, per-KG folders, zip archives and
         owl:sameAs files (see ``kg2analyzer.ingest``). Returns a JSON-ready pipeline report.
+        ``engine="notebook"`` (default) runs the KG2MD notebook on each KG; ``"builtin"`` runs the
+        thesis-era reimplementation (``run_kg2md``). ``env`` passes KG2MD_* options to the notebook.
         """
+        if engine not in ("notebook", "builtin"):
+            raise ValueError("engine must be notebook or builtin")
         t0 = time.perf_counter()
         kgs, identity_files = group(files)
         if not kgs:
@@ -96,8 +110,11 @@ class KG2Analyzer:
         t_parse = time.perf_counter()
         report_kgs = []
         for name, kg in kgs.items():
+            if engine == "notebook":
+                self.build_mdkg(name, kg, env)
+            else:
+                self.load_kg(name, kg.abox, max_facts=max_facts, tbox=kg.tbox)
             self.inputs[name] = {"tbox_files": kg.tbox_files, "abox_files": kg.abox_files}
-            self.load_kg(name, kg.abox, max_facts=max_facts, tbox=kg.tbox)
             report_kgs.append(self._kg_summary(name))
         t_mdkg = time.perf_counter()
         supplied = sum(self.load_identity(g) for _, g in identity_files)
@@ -106,7 +123,7 @@ class KG2Analyzer:
         if not reset:  # adding to an existing set: keep earlier KGs in the report
             new_names = {k["kg"] for k in report_kgs}
             report_kgs = [k for k in (self.last_report or {}).get("kgs", [])
-                          if k["kg"] in self.results and k["kg"] not in new_names] + report_kgs
+                          if k["kg"] in self._built() and k["kg"] not in new_names] + report_kgs
         self.last_report = {
             "kgs": report_kgs,
             "identity": {"supplied_files": [p for p, _ in identity_files], "supplied_links": supplied,
@@ -135,55 +152,50 @@ class KG2Analyzer:
                         for c in out["candidates"] if (c["left"], c["right"]) in new]})
         return pairs, added
 
+    def build_mdkg(self, name: str, kg: KgInput, env: dict[str, str] | None = None) -> dict:
+        """Run the KG2MD notebook on one KG's TBox + ABox and host the MDKG it writes."""
+        from kg2analyzer.kg2md.notebook import run_notebook
+
+        run = run_notebook(kg.turtle("tbox"), kg.turtle("abox"), decider=self.decider, env=env)
+        files = [RdfFile(f"{name}/{p}", b) for p, b in run.files.items()]
+        if name in self.store.sources:
+            self.remove_kg(name)
+        if run.summary.get("cubes"):
+            mdkgs, _ = read_mdkgs(files)  # the same reader Query and Ask use
+            self._put_mdkg(mdkgs[name])
+        self.mdkg_raw[name] = {f.path: f.data for f in files}
+        self.runs[name] = {**run.summary, "decider": run.decider, "seconds": run.seconds, "log": run.log}
+        self._invalidate()
+        return self.runs[name]
+
+    def _put_mdkg(self, m: Mdkg) -> None:
+        self.store.put(m.name, schema_graph(m.name), m.schema)
+        self.store.put(m.name, data_graph(m.name), with_member_descriptions(m.data, m.source))
+        if len(m.source):
+            self.store.put(m.name, source_graph(m.name), m.source)
+        self.mdkg_raw[m.name] = dict(m.raw)
+        self._invalidate()
+
+    def _built(self) -> set[str]:
+        return set(self.results) | set(self.runs)
+
     def load_mdkgs(self, files: list[RdfFile], auto_link: bool = True, link_threshold: float = 0.6,
                    reset: bool = False) -> dict:
-        """Load MDKGs saved from Build (``<kg>.mdkg.trig``, N-Quads, or a zip of them) plus optional
-        owl:sameAs files. Nothing is re-run: the QB4OLAP schema and observation graphs are used as saved."""
-        from rdflib import Dataset
-
-        from kg2analyzer.ingest import expand, is_identity_graph, parse
-        from kg2analyzer.store import GRAPHS, IDENTITY_GRAPH
-
-        QB_DATASET = URIRef("http://purl.org/linked-data/cube#DataSet")
-        RDF_TYPE = URIRef("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
-        hint = "is not an MDKG. Build it in step 1 and load the saved .mdkg.trig (schema + data graphs)."
-        found: dict[str, dict] = {}
-        identity_files: list[tuple[str, Graph]] = []
-        for f in expand(files):
-            if f.fmt in ("trig", "nquads"):
-                ds = Dataset()
-                ds.parse(data=f.data.decode("utf-8"), format=f.fmt)
-                for ctx in ds.graphs():
-                    iri = str(ctx.identifier)
-                    if not len(ctx) or not iri.startswith(GRAPHS):
-                        continue
-                    if iri == str(IDENTITY_GRAPH):
-                        identity_files.append((f.path, ctx))
-                        continue
-                    kg, _, role = iri[len(GRAPHS):].partition("/")
-                    entry = found.setdefault(kg, {"files": [], "schema": None, "data": None})
-                    entry[role or "data"] = ctx
-                    if f.path not in entry["files"]:
-                        entry["files"].append(f.path)
-            else:
-                g = parse(f)
-                if is_identity_graph(g):
-                    identity_files.append((f.path, g))
-                else:
-                    raise ValueError(f"{f.path} {hint}")
-        for kg, e in found.items():
-            if e["schema"] is None or e["data"] is None or (None, RDF_TYPE, QB_DATASET) not in e["schema"]:
-                raise ValueError(f"{', '.join(e['files'])} {hint}")
+        """Load MDKGs as the KG2MD notebook saves them (per KG: ``fact_classes/<cube>/mdkg_dataset.nq`` or
+        ``mdkg_schema.ttl`` + ``mdkg_data.ttl``; folders or a zip) plus optional owl:sameAs files.
+        Nothing is re-run: the QB4OLAP schema and data graphs are used as saved."""
+        found, identity_files = read_mdkgs(files)
         if not found and not identity_files:
-            raise ValueError(f"The upload {hint}")
+            raise ValueError(f"The upload {HINT}")
         if reset:
             for kg in list(self.store.sources):
                 self.remove_kg(kg)
             self.store.identity.remove((None, None, None))
-        for kg, e in sorted(found.items()):
-            self.store.put(kg, schema_graph(kg), e["schema"])
-            self.store.put(kg, data_graph(kg), e["data"])
-            self.inputs[kg] = {"mdkg_files": e["files"]}
+        for kg, m in sorted(found.items()):
+            if kg in self.store.sources:
+                self.remove_kg(kg)
+            self._put_mdkg(m)
+            self.inputs[kg] = {"mdkg_files": m.files}
         self._invalidate()
         supplied = sum(self.load_identity(g) for _, g in identity_files)
         pairs, added = self._auto_link(link_threshold) if auto_link else ([], 0)
@@ -201,7 +213,7 @@ class KG2Analyzer:
             for c in (c for c in self.catalog.cubes if c.kg == kg):
                 n = self.store.query(f"SELECT (COUNT(?o) AS ?n) WHERE {{ GRAPH <{c.graph}> {{ ?o "
                                      f"<http://purl.org/linked-data/cube#dataSet> <{c.dataset}> }} }}").rows[0]["n"]
-                cubes.append({"fact_class": local_name(c.fact_class), "dataset": c.dataset, "observations": int(n or 0),
+                cubes.append({"fact_class": c.label, "dataset": c.dataset, "observations": int(n or 0),
                               "measures": len(c.measures), "dimensions": len(c.dimensions)})
             inp = self.inputs.get(kg, {})
             out.append({"kg": kg, "files": inp.get("mdkg_files") or inp.get("abox_files") or [], "cubes": cubes})
@@ -209,6 +221,8 @@ class KG2Analyzer:
 
     def _kg_summary(self, name: str) -> dict:
         """One MDKG as reported to callers: TBox/ABox inputs, Otsu threshold, cubes and audit, warnings."""
+        if name in self.runs:
+            return self._run_summary(name)
         res = self.results[name]
         inp = self.inputs.get(name, {"tbox_files": [], "abox_files": []})
         warnings = []
@@ -232,41 +246,122 @@ class KG2Analyzer:
                       for c in res.cubes],
         }
 
+    def _run_summary(self, name: str) -> dict:
+        run = self.runs[name]
+        inp = self.inputs.get(name, {"tbox_files": [], "abox_files": []})
+        warnings = []
+        if run["decider"].startswith("structural"):
+            warnings.append("Decided by the structural stand-in (KG2A_DECIDER=structural), not by Tev1.")
+        if not run["tbox_triples"]:
+            warnings.append("No TBox supplied: classes and properties were inferred from the ABox alone.")
+        undeclared = [p for p in run["undeclared_properties"] if not p.startswith(_STANDARD_NS)]
+        if undeclared:
+            n = len(undeclared)
+            warnings.append(f"{n} ABox propert{'y is' if n == 1 else 'ies are'} not declared in the TBox (still profiled).")
+        if run["separated_records"]:
+            warnings.append(f"{run['separated_records']} measured records that reused a subject IRI were separated (record identity).")
+        if not run["cubes"]:
+            warnings.append("No fact class was selected.")
+        cubes = [c for c in self.catalog.cubes if c.kg == name]
+        thr = run["otsu_threshold"]
+        return {
+            "kg": name, "files": sorted(set(inp.get("tbox_files", [])) | set(inp.get("abox_files", []))),
+            "tbox_files": inp.get("tbox_files", []), "abox_files": inp.get("abox_files", []),
+            "tbox_triples": run["tbox_triples"], "abox_triples": run["abox_triples"],
+            "triples": run["tbox_triples"] + run["abox_triples"],
+            "undeclared_properties": undeclared, "warnings": warnings,
+            "otsu_threshold": round(thr, 4) if thr is not None else None, "classes": len(run["classes"]),
+            "decider": run["decider"], "seconds": run["seconds"],
+            "cubes": [{"fact_class": c.label, "dataset": c.dataset, "measures": len(c.measures), "dimensions": len(c.dimensions),
+                       **{k: a[k] for k in ("observations", "fact_preservation", "measure_fidelity")}}
+                      for c in cubes for a in [self.audit(c)]],
+        }
+
+    def audit(self, cube) -> dict:
+        """Observation-to-fact audit of one loaded cube, recomputed from its own graphs: every observation
+        derives from a source fact (prov:wasDerivedFrom) and carries that fact's measure values."""
+        from decimal import Decimal, InvalidOperation
+
+        from rdflib.namespace import PROV, RDF
+
+        key = (cube.kg, cube.dataset)
+        if key in self._audits:
+            return self._audits[key]
+        ds = self.store.sources[cube.kg].dataset
+        data, src = ds.graph(data_graph(cube.kg)), ds.graph(source_graph(cube.kg))
+        obs = set(data.subjects(URIRef("http://purl.org/linked-data/cube#dataSet"), URIRef(cube.dataset)))
+        derived = {data.value(o, PROV.wasDerivedFrom): o for o in obs}
+        derived.pop(None, None)
+        out = {"observations": len(obs), "source_facts": None, "ghost_observations": None, "dropped_facts": None,
+               "measure_cells_checked": 0, "measure_cells_mismatched": 0, "fact_preservation": None, "measure_fidelity": None}
+        if len(src):
+            msrc = {URIRef(m.iri): URIRef(m.source) for m in cube.measures if m.source}
+            facts = set(src.subjects(RDF.type, URIRef(cube.fact_class)))
+            if msrc:
+                facts = {f for f in facts if any(src.value(f, p) is not None for p in msrc.values())}
+
+            def nums(values):
+                out = []
+                for v in values:
+                    try:
+                        out.append(Decimal(str(v)))
+                    except InvalidOperation:
+                        out.append(str(v))
+                return sorted(out, key=str)
+
+            cells = bad = 0
+            for f, o in derived.items():
+                for m, p in msrc.items():
+                    cells += 1
+                    bad += nums(data.objects(o, m)) != nums(src.objects(f, p))
+            out.update(source_facts=len(facts), ghost_observations=len(set(derived) - facts),
+                       dropped_facts=len(facts - set(derived)), measure_cells_checked=cells, measure_cells_mismatched=bad,
+                       fact_preservation=round(len(facts & set(derived)) / len(facts), 4) if facts else 1.0,
+                       measure_fidelity=round(1 - bad / cells, 4) if cells else 1.0)
+        self._audits[key] = out
+        return out
+
     def overview(self) -> dict:
         """Every loaded MDKG (fact cubes, audit, input files) and the current identity links, labelled."""
         labels: dict[str, str] = {}
         for g in self._graphs().values():
             for s, o in g.subject_objects(URIRef("http://www.w3.org/2000/01/rdf-schema#label")):
                 labels.setdefault(str(s), str(o))
-        kgs = [self._kg_summary(name) for name in sorted(self.results)]
+        kgs = [self._kg_summary(name) for name in sorted(self._built())]
         pairs = sorted({tuple(sorted((str(a), str(b)))) for a, _, b in self.store.identity.triples((None, OWL.sameAs, None))
                         if str(a) != str(b)})
         links = [{"left": a, "right": b, "left_label": labels.get(a), "right_label": labels.get(b),
                   "left_kg": self._kg_of(a), "right_kg": self._kg_of(b)} for a, b in pairs]
-        return {"kgs": kgs, "remote": [k for k in self.store.sources if k not in self.results],
+        return {"kgs": kgs, "remote": [k for k in self.store.sources if k not in self._built()],
                 "identity": {"links": links, "clusters": len(set(self.store.identity_clusters().values()))}}
 
     def ingest_paths(self, paths: list[str | Path], **kw) -> dict:
         """``ingest`` from files, folders or zip archives on disk."""
         return self.ingest(read_paths(paths), **kw)
 
-    def mdkg_trig(self, kg: str) -> str:
-        """One KG's MDKG (QB4OLAP schema graph + observation graph) as TriG."""
-        ep = self.store.sources.get(kg)
-        if ep is None or not hasattr(ep, "dataset"):
-            raise KeyError(f"no local MDKG for {kg!r}")
-        return ep.dataset.serialize(format="trig")
+    def mdkg_files(self, kg: str | None = None) -> dict[str, bytes]:
+        """The MDKG files as KG2MD wrote them (``<kg>/fact_classes/<cube>/...``), plus identity.ttl."""
+        out: dict[str, bytes] = {}
+        for name in sorted(self.mdkg_raw):
+            if kg is None or name == kg:
+                out.update(self.mdkg_raw[name])
+        if kg is None and len(self.store.identity):
+            out["identity.ttl"] = self.store.identity.serialize(format="turtle").encode("utf-8")
+        if kg is not None and not out:
+            raise KeyError(f"no MDKG files for {kg!r}")
+        return out
 
     def mdkg_zip(self) -> bytes:
-        """All MDKGs (one TriG each), the identity graph and the last pipeline report, zipped."""
+        """All MDKG folders, the identity graph and the last pipeline report, zipped."""
         import json
         import zipfile
 
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            for kg in self.results:
-                z.writestr(f"{kg}.mdkg.trig", self.mdkg_trig(kg))
-            z.writestr("identity.ttl", self.store.identity.serialize(format="turtle"))
+            for path, data in self.mdkg_files().items():
+                z.writestr(path, data)
+            if "identity.ttl" not in self.mdkg_files():
+                z.writestr("identity.ttl", self.store.identity.serialize(format="turtle"))
             z.writestr("report.json", json.dumps(getattr(self, "last_report", {}) or {}, indent=2, default=str))
         return buf.getvalue()
 
@@ -293,11 +388,14 @@ class KG2Analyzer:
     def remove_kg(self, name: str) -> None:
         self.store.remove_kg(name)
         self.results.pop(name, None)
+        self.runs.pop(name, None)
+        self.mdkg_raw.pop(name, None)
         self.raw.pop(name, None)
         self.inputs.pop(name, None)
         self._invalidate()
 
     def _invalidate(self):
+        self._audits = {}
         self._catalog = None
         self._nl = None
         self._suggestions = None
@@ -344,7 +442,7 @@ class KG2Analyzer:
         if d is None:
             raise KeyError(f"unknown dimension {dim!r} in {kg!r}")
         lvl = _resolve_level(d, level)
-        q = (f"SELECT DISTINCT ?m ?l WHERE {{ GRAPH <{cube.graph}> {{ ?m a <{lvl}> . "
+        q = (f"SELECT DISTINCT ?m ?l WHERE {{ GRAPH <{cube.graph}> {{ {Catalog.member_pattern('m', lvl)} . "
              f"OPTIONAL {{ ?m <http://www.w3.org/2000/01/rdf-schema#label> ?l }} }} }} ORDER BY ?l ?m LIMIT {int(limit)}")
         return [{"iri": r["m"], "label": r["l"] or local_name(r["m"])} for r in self.store.query(q).rows]
 
@@ -375,7 +473,7 @@ class KG2Analyzer:
                 for link, n in (("identity", len(ids_a & ids_b)), ("shared", shared)):
                     if n:
                         out.append({"left_dim": da.prop, "right_dim": db.prop, "link": link, "aligned": n,
-                                    "label": f"{local_name(da.prop)} ↔ {local_name(db.prop)} "
+                                    "label": f"{da.name} ↔ {db.name} "
                                              f"({'same entity' if link == 'identity' else 'same value'}, {n} aligned)"})
         out.sort(key=lambda o: (o["link"] != "identity", -o["aligned"]))
         return out
@@ -470,8 +568,8 @@ class KG2Analyzer:
         if not cat.cubes:
             return []
 
-        def words(iri: str) -> str:
-            return re.sub(r"[_\-]+", " ", re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", local_name(iri))).lower()
+        def words(name: str) -> str:
+            return re.sub(r"[_\-]+", " ", re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name)).lower()
 
         def measure(c, additive=True):
             return next((m for m in c.measures if (m.additivity == "additive") == additive), None)
@@ -482,16 +580,17 @@ class KG2Analyzer:
             if m is None:
                 continue
             for d in c.dimensions[:2]:
-                candidates.append(f"Total {words(m.iri)} by {words(d.levels[1] if len(d.levels) > 1 else d.levels[0])} in {c.kg}")
+                verb = "Total" if m.additivity == "additive" else "Average"
+                candidates.append(f"{verb} {words(m.label)} by {words(d.level_name(d.levels[1] if len(d.levels) > 1 else d.levels[0]))} in {c.kg}")
             na = measure(c, additive=False)
             if na and c.dimensions:
-                candidates.append(f"Average {words(na.iri)} per {words(c.dimensions[0].prop)} in {c.kg}")
+                candidates.append(f"Average {words(na.label)} per {words(c.dimensions[0].name)} in {c.kg}")
         if len(self.store.identity):
             for i, a in enumerate(cat.cubes):
                 for b in cat.cubes[i + 1:]:
                     ma, mb = measure(a), measure(b)
                     if ma and mb:
-                        candidates.append(f"Total {a.kg} {words(ma.iri)} and {b.kg} {words(mb.iri)} for shared entities")
+                        candidates.append(f"Total {a.kg} {words(ma.label)} and {b.kg} {words(mb.label)} for shared entities")
         parser, validator = self.nl.parser, self.nl.validator
         ok, seen_kinds = [], set()
         for q in candidates:
@@ -512,6 +611,8 @@ class KG2Analyzer:
 
     # ---------------------------------------------------------------- reporting
     def phase1_report(self, kg: str) -> dict:
+        if kg in self.runs:
+            return self._run_report(kg)
         res = self.results[kg]
         sel = res.selection
         return {
@@ -542,6 +643,27 @@ class KG2Analyzer:
                                for d in c.dimensions],
             } for c in res.cubes],
         }
+
+    def _run_report(self, kg: str) -> dict:
+        """Every decision the KG2MD notebook made for one KG, and what it built."""
+        run = self.runs[kg]
+        agg_decisions = {str(d["profile"].get("measure_name", "")).lower(): d
+                         for d in run["decisions"] if d["question"] == "aggregate"}
+        cubes = []
+        for c in (c for c in self.catalog.cubes if c.kg == kg):
+            built = next((b for b in run["cubes"] if b["fact_class"] == c.fact_class), {})
+            cubes.append({
+                "fact_class": c.fact_class, "dataset": c.dataset, "label": c.label, "key": built.get("key"),
+                "audit": self.audit(c), "observations": self.audit(c)["observations"],
+                "measures": [{"iri": m.iri, "name": m.label, "unit": m.unit, "aggregate": m.aggregate,
+                              "additivity": m.additivity, "source": m.source,
+                              "decision": agg_decisions.get(m.label.lower())} for m in c.measures],
+                "dimensions": built.get("dimensions", []),
+            })
+        return {"kg": kg, "decider": run["decider"], "seconds": run["seconds"],
+                "otsu_threshold": run["otsu_threshold"], "classes": run["classes"], "cubes": cubes,
+                "decisions": run["decisions"], "undeclared_properties": run["undeclared_properties"],
+                "separated_records": run["separated_records"], "log": run["log"]}
 
     def export_nquads(self) -> str:
         return self.store.integrated.serialize(format="nquads")

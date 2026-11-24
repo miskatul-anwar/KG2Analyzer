@@ -1,11 +1,13 @@
 import { api } from "@/api/client";
 
-type DirHandle = { getFileHandle: (n: string, o: { create: boolean }) => Promise<FileHandle> };
-type FileHandle = { createWritable: () => Promise<{ write: (b: Blob) => Promise<void>; close: () => Promise<void> }> };
-type FsWindow = Window & {
-  showDirectoryPicker?: (o?: { mode?: string; id?: string }) => Promise<DirHandle & { name: string }>;
-  showSaveFilePicker?: (o?: { suggestedName?: string; id?: string }) => Promise<FileHandle & { name: string }>;
+type Writable = { write: (b: Blob) => Promise<void>; close: () => Promise<void> };
+type FileHandle = { createWritable: () => Promise<Writable> };
+type DirHandle = {
+  name: string;
+  getFileHandle: (n: string, o: { create: boolean }) => Promise<FileHandle>;
+  getDirectoryHandle: (n: string, o: { create: boolean }) => Promise<DirHandle>;
 };
+type FsWindow = Window & { showDirectoryPicker?: (o?: { mode?: string; id?: string }) => Promise<DirHandle> };
 
 const fetchBlob = async (url: string) => {
   const r = await fetch(url);
@@ -23,50 +25,49 @@ function download(url: string, name: string) {
   a.remove();
 }
 
-/**
- * Save every built MDKG where the user chooses: a folder picker writes `<kg>.mdkg.trig` + `identity.ttl`
- * (File System Access API, Chromium); other browsers download `mdkg.zip`.
- * Returns a short description of where the files went, or null if the user cancelled.
- */
-export async function saveAllMdkgs(kgs: string[]): Promise<string | null> {
+/** Write `files` (paths like `retail/fact_classes/<cube>/mdkg_dataset.nq`) into a folder the user picks. */
+async function writeTree(paths: string[]): Promise<string | null> {
   const w = window as FsWindow;
-  if (!w.showDirectoryPicker) {
-    download(api.mdkgZipUrl(), "mdkg.zip");
-    return "downloaded mdkg.zip";
-  }
   try {
-    const dir = await w.showDirectoryPicker({ mode: "readwrite", id: "kg2a-mdkgs" });
-    const write = async (name: string, blob: Blob) => {
-      const fh = await dir.getFileHandle(name, { create: true });
-      const out = await fh.createWritable();
-      await out.write(blob);
+    const root = await w.showDirectoryPicker!({ mode: "readwrite", id: "kg2a-mdkgs" });
+    for (const path of paths) {
+      const parts = path.split("/");
+      let dir = root;
+      for (const d of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(d, { create: true });
+      const out = await (await dir.getFileHandle(parts[parts.length - 1], { create: true })).createWritable();
+      await out.write(await fetchBlob(api.mdkgFileUrl(path)));
       await out.close();
-    };
-    for (const kg of kgs) await write(`${kg}.mdkg.trig`, await fetchBlob(api.mdkgFileUrl(kg)));
-    await write("identity.ttl", await fetchBlob(api.identityUrl()));
-    return `saved ${kgs.length} MDKG file${kgs.length === 1 ? "" : "s"} + identity.ttl to “${dir.name}”`;
+    }
+    return root.name;
   } catch (e) {
     if (isAbort(e)) return null;
     throw e;
   }
 }
 
-/** Save one MDKG with a native "Save as…" dialog where available, else download it. */
+/**
+ * Save every built MDKG where the user chooses, exactly as KG2MD writes it: one folder per KG
+ * (`<kg>/fact_classes/<cube>/mdkg_schema.ttl · mdkg_data.ttl · mdkg_dataset.nq`, `factclass_selection.json`,
+ * `kg2md.log`) plus `identity.ttl`. Without a folder picker (non-Chromium browsers) it downloads `mdkg.zip`.
+ * Returns where the files went, or null if the user cancelled.
+ */
+export async function saveAllMdkgs(kgs: string[]): Promise<string | null> {
+  if (!(window as FsWindow).showDirectoryPicker) {
+    download(api.mdkgZipUrl(), "mdkg.zip");
+    return "downloaded mdkg.zip";
+  }
+  const { files } = await api.mdkgFiles();
+  const where = await writeTree(files.map((f) => f.path));
+  return where === null ? null : `saved ${kgs.length} MDKG folder${kgs.length === 1 ? "" : "s"} + identity.ttl to “${where}”`;
+}
+
+/** Save one KG's MDKG folder into a folder the user picks (or download the zip). */
 export async function saveOneMdkg(kg: string): Promise<string | null> {
-  const w = window as FsWindow;
-  const name = `${kg}.mdkg.trig`;
-  if (!w.showSaveFilePicker) {
-    download(api.mdkgFileUrl(kg), name);
-    return `downloaded ${name}`;
+  if (!(window as FsWindow).showDirectoryPicker) {
+    download(api.mdkgZipUrl(), "mdkg.zip");
+    return "downloaded mdkg.zip";
   }
-  try {
-    const fh = await w.showSaveFilePicker({ suggestedName: name, id: "kg2a-mdkg" });
-    const out = await fh.createWritable();
-    await out.write(await fetchBlob(api.mdkgFileUrl(kg)));
-    await out.close();
-    return `saved ${fh.name}`;
-  } catch (e) {
-    if (isAbort(e)) return null;
-    throw e;
-  }
+  const { files } = await api.mdkgFiles(kg);
+  const where = await writeTree(files.map((f) => f.path));
+  return where === null ? null : `saved ${kg}/ to “${where}”`;
 }

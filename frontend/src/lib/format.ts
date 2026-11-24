@@ -1,6 +1,26 @@
+/** Display names from the loaded catalogue (measure labels, dimension and level names), by IRI. */
+const NAMES = new Map<string, string>();
+// KG2MD notebook IRIs carry hashes: City_eaf60b2430de57f8a034_level -> City, discount_measure -> discount
+const SUFFIX = /(?:_[0-9a-f]{12,})?_(?:level|dimension)(?:_hierarchy_[0-9a-f]+|_all)?$|_measure$/;
+
+export function registerNames(cat: { cubes: { measures: { iri: string; label: string }[];
+  dimensions: { prop: string; name?: string; level_names?: Record<string, string> }[] }[] }) {
+  for (const c of cat.cubes) {
+    for (const m of c.measures) NAMES.set(m.iri, m.label);
+    for (const d of c.dimensions) {
+      if (d.name) NAMES.set(d.prop, d.name);
+      for (const [lvl, n] of Object.entries(d.level_names ?? {})) NAMES.set(lvl, n);
+    }
+  }
+}
+
 export const localName = (iri: unknown): string => {
   const s = String(iri ?? "");
-  return s.startsWith("http") ? (s.split(/[#/]/).pop() ?? s) : s;
+  if (!s.startsWith("http")) return s;
+  const known = NAMES.get(s);
+  if (known) return known;
+  const n = s.split(/[#/]/).pop() ?? s;
+  return n.replace(SUFFIX, "") || n;
 };
 
 export function fmtNum(v: number, decimals?: number): string {

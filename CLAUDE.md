@@ -5,12 +5,15 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
 ## Backend (`backend/`)
 
 - `KG2Analyzer` in `kg2analyzer/analyzer.py` is the one entry point; `server.py`, `__main__.py` and the tests all go through it.
-  - Phase I `kg2md/` (profiling + Otsu, measures + SHAP/LIME, ADW4 hierarchies, QB4OLAP pipeline)
+  - Phase I is the KG2MD notebook itself: `kg2md/notebook/KG2MD.ipynb` (verbatim copy; refresh with `kg2analyzer sync-notebook`) run cell by cell by `run_notebook` with Tev1 injected as `fact_decider` (ADR 0008). Never edit the vendored notebook here; change it in miskatul-anwar/KG2MD.
+  - `mdkg_files.py` reads the notebook's output folders; the catalogue reads its QB4OLAP layout (`catalog._notebook_cubes`).
+  - The built-in engine `kg2md/` (`run_kg2md`: profiling + Otsu, measures + SHAP/LIME, ADW4 hierarchies) stays for the thesis-table tests (`load_kg`, `engine="builtin"`).
   - Phase II `store.py`, `catalog.py`, `planner.py`, `olap.py`; graph analytics `graphml.py`, `linking.py`
   - Phase III `nl/` (validator, translators, interface)
-- `models/*.joblib` are the trained measure classifiers; `kg2md/features.py` must stay compatible with how they were trained (keep its tag join sorted: unsorted set order made results depend on the hash seed).
-- Input is a *set* of raw KGs, each with a **TBox and an ABox**: `ingest.py` assigns files to KGs and roles (explicit `<kg>/tbox|abox/` paths, name patterns, or a content split of combined files) and `KG2Analyzer.ingest` builds one MDKG per KG (`run_kg2md(abox, tbox=...)`) and auto-links them.
-- The three sections are **separate workspaces** (`server.WORKSPACES`, `?ws=build|query|ask` on every endpoint). They share files, never state: Build saves MDKG files (`mdkg_trig`, `mdkg_zip`, identity.ttl); Query and Ask load them with `KG2Analyzer.load_mdkgs` (no KG2MD re-run). See ADR 0007.
+- Tev1 needs `uv sync --extra tev1`. Tests set `KG2A_DECIDER=structural` (tests/conftest.py), the structural stand-in at the decider seam; `tests/test_tev1.py` runs real Tev1 with `KG2A_TEST_TEV1=1`. Never present stand-in results as Tev1.
+- `models/*.joblib` are the built-in engine's measure classifiers; `kg2md/features.py` must stay compatible with how they were trained (keep its tag join sorted: unsorted set order made results depend on the hash seed).
+- Input is a *set* of raw KGs, each with a **TBox and an ABox**: `ingest.py` assigns files to KGs and roles (explicit `<kg>/tbox|abox/` paths, name patterns, or a content split of combined files) and `KG2Analyzer.ingest` builds one MDKG per KG (`build_mdkg` → `run_notebook(tbox, abox)`) and auto-links them.
+- The three sections are **separate workspaces** (`server.WORKSPACES`, `?ws=build|query|ask` on every endpoint). They share files, never state: Build saves MDKG folders as the notebook writes them (`mdkg_files`, `mdkg_zip`, identity.ttl); Query and Ask load them with `KG2Analyzer.load_mdkgs` (no KG2MD re-run). See ADR 0007.
 - `server.py` serves `frontend/dist` (SPA fallback) when it exists.
 
 ## Frontend (`frontend/`)
@@ -28,7 +31,7 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
 
 Python is managed with **uv** (never pip): add dependencies with `uv add <pkg>` (dev: `uv add --dev <pkg>`) and commit `uv.lock`.
 
-- Backend setup: `cd backend && uv sync`
+- Backend setup: `cd backend && uv sync --extra tev1` (without the extra: Query/Ask, and Build with `--decider structural`)
 - Backend tests: `cd backend && uv run pytest -q` (all must pass before committing)
 - Frontend checks: `cd frontend && npm run typecheck && npm run build`
 - Build MDKGs: `cd backend && uv run kg2analyzer build <kgs...> --out mdkg`

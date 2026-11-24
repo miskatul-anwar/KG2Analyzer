@@ -145,7 +145,7 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
         <ShimmerButton disabled={!canBuild || run.isPending} onClick={() => run.mutate()}>
           {run.isPending ? "Building…" : extras.some((f) => /\.zip$/i.test(f.name)) ? "Build MDKGs" : `Build ${ready.length || ""} MDKG${ready.length === 1 ? "" : "s"}`}
         </ShimmerButton>
-        {run.isPending && <span className="text-xs text-ink-3">profiling · Otsu · measures · hierarchies · QB4OLAP · linking</span>}
+        {run.isPending && <span className="text-xs text-ink-3">running the KG2MD notebook (Tev1 decisions · Otsu · hierarchies · QB4OLAP · audit), then linking. With Tev1 on a CPU this takes about a minute per KG.</span>}
         {!run.isPending && incomplete.length > 0 && <span className="text-xs text-warn">{incomplete.map((r) => r.name || "a KG").join(", ")}: add both a TBox and an ABox</span>}
         {!run.isPending && unnamed.length > 0 && <span className="text-xs text-warn">Name every knowledge graph</span>}
         <button className="ml-auto inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink" onClick={() => setShowOptions(!showOptions)}>

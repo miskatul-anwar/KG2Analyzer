@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-const ACCEPT = ".trig,.nq,.zip,.ttl,.nt";
+const ACCEPT = ".nq,.ttl,.zip,.json,.nt";
 const relPath = (f: File) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
 
 /**
@@ -25,6 +25,7 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
   const { data, isLoading } = useMdkgs(ws);
   const refresh = useRefreshStore(ws);
   const input = useRef<HTMLInputElement>(null);
+  const folder = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const [autoLink, setAutoLink] = useState(true);
 
@@ -45,7 +46,13 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
   const clear = useMutation({ mutationFn: () => api.reset(ws), onSuccess: () => void refresh() });
   const pick = (list: FileList | null) => { if (list?.length) load.mutate([...list]); };
   const onDrop = (e: DragEvent) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files); };
-  const fileInput = <input ref={input} type="file" multiple hidden accept={ACCEPT} onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />;
+  const fileInput = (
+    <>
+      <input ref={input} type="file" multiple hidden accept={ACCEPT} onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      {/* a whole saved folder: <kg>/fact_classes/<cube>/mdkg_*.ttl|nq (webkitdirectory keeps the relative paths) */}
+      <input ref={folder} type="file" multiple hidden {...{ webkitdirectory: "" }} onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+    </>
+  );
 
   if (isLoading) return <LoadingBlock rows={4} />;
   const mdkgs = data?.mdkgs ?? [];
@@ -57,8 +64,9 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
         <Spotlight className="left-1/2 top-0 h-72 w-[32rem] -translate-x-1/2" />
         <h1 className="text-center text-3xl font-semibold tracking-tight">{title}</h1>
         <p className="mx-auto mt-2 max-w-xl text-center text-ink-2">
-          Load the MDKGs you want to work with. These are the files you saved in step 1 (<span className="mono">*.mdkg.trig</span>,
-          or the whole <span className="mono">mdkg.zip</span>), plus <span className="mono">identity.ttl</span> if you saved it.
+          Load the MDKGs you want to work with: the folders you saved in step 1 (one per KG, as KG2MD writes them:
+          <span className="mono"> fact_classes/&lt;cube&gt;/mdkg_dataset.nq</span>), or the whole <span className="mono">mdkg.zip</span>,
+          plus <span className="mono">identity.ttl</span> if you saved it.
         </p>
         <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}
           onClick={() => input.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && input.current?.click()}
@@ -66,10 +74,13 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
             drag ? "border-brand bg-brand/5" : "border-border hover:border-brand/60")}>
           <PiFolderOpenDuotone className="size-12 text-brand" />
           <div className="text-lg font-semibold">Drop MDKG files here</div>
-          <div className="text-xs text-ink-3">.mdkg.trig · N-Quads · .zip · identity .ttl</div>
-          <ShimmerButton className="mt-2" disabled={load.isPending} onClick={(e) => { e.stopPropagation(); input.current?.click(); }}>
-            {load.isPending ? "Loading…" : "Choose MDKG files"}
-          </ShimmerButton>
+          <div className="text-xs text-ink-3">MDKG folders · mdkg_dataset.nq · mdkg_schema.ttl + mdkg_data.ttl · .zip · identity.ttl</div>
+          <div className="mt-2 flex flex-wrap justify-center gap-2">
+            <ShimmerButton disabled={load.isPending} onClick={(e) => { e.stopPropagation(); folder.current?.click(); }}>
+              {load.isPending ? "Loading…" : "Choose a folder"}
+            </ShimmerButton>
+            <Button variant="outline" disabled={load.isPending} onClick={(e) => { e.stopPropagation(); input.current?.click(); }}>Choose files</Button>
+          </div>
           {fileInput}
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-ink-2">
@@ -105,7 +116,8 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {load.isPending && <span className="text-xs text-ink-3">loading…</span>}
-          <Button variant="outline" size="sm" onClick={() => input.current?.click()}><TbPlus />Load more</Button>
+          <Button variant="outline" size="sm" onClick={() => folder.current?.click()}><TbPlus />Load folder</Button>
+          <Button variant="ghost" size="sm" onClick={() => input.current?.click()}>files</Button>
           <Button variant="ghost" size="sm" onClick={() => clear.mutate()} className="text-ink-3 hover:text-bad"><TbTrash />Clear</Button>
           {fileInput}
         </div>

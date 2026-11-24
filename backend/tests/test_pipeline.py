@@ -86,14 +86,18 @@ def test_cross_kg_analytics_work_on_the_auto_built_mdkgs(built):
     assert ans.status == "executed" and len(ans.rows) == 2
 
 
-def test_mdkg_export_holds_schema_and_data_graphs(built):
+def test_mdkg_export_is_the_kg2md_notebook_output_folder(built):
     az, _ = built
+    files = az.mdkg_files("retail")
+    cube = next(p.rsplit("/", 1)[0] for p in files if p.endswith("mdkg_dataset.nq"))
+    assert cube.startswith("retail/fact_classes/SaleTransaction_")
+    assert {f"{cube}/mdkg_schema.ttl", f"{cube}/mdkg_data.ttl", "retail/factclass_selection.json", "retail/kg2md.log"} <= set(files)
     ds = Dataset()
-    ds.parse(data=az.mdkg_trig("retail"), format="trig")
+    ds.parse(data=files[f"{cube}/mdkg_dataset.nq"].decode(), format="nquads")
     graphs = {str(g.identifier) for g in ds.graphs() if len(g)}
-    assert graphs == {"http://example.org/graphs/retail", "http://example.org/graphs/retail/schema"}
+    assert graphs == {"http://example.org/mdkg/sourceGraph", "http://example.org/mdkg/schemaGraph", "http://example.org/mdkg/cubeGraph"}
     archive = zipfile.ZipFile(io.BytesIO(az.mdkg_zip()))
-    assert set(archive.namelist()) >= {"retail.mdkg.trig", "finance.mdkg.trig", "identity.ttl", "report.json"}
+    assert {f"{cube}/mdkg_dataset.nq", "identity.ttl", "report.json"} <= set(archive.namelist())
 
 
 def test_supplied_identity_file_is_recognised_and_kept(bench, tmp_path):

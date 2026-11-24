@@ -22,9 +22,16 @@ _Avoid_: data file, instances file (when the role is meant)
 A class whose instances are measured events (sales, trades, readings); each instance becomes one observation.
 _Avoid_: fact table, event class
 
+**Decider**:
+The model that answers KG2MD's four multiple-choice questions (fact class? aggregate function? unit of measure? level attribute?). In Build it is **Tev1** (`togethercomputer/Tev1-0.8B-experimental`), read from the next-token probabilities of the option letters. The **structural stand-in** (`KG2A_DECIDER=structural`) answers from structure and names; it is for tests and machines without PyTorch, never presented as Tev1.
+_Avoid_: classifier, LLM (for the decider)
+
 **Fact probability** (p_c):
-The scorer's probability that a class is a fact class, from its topological profile.
+The decider's probability that a class is a fact class (Tev1's P(option A)), from the class profile the notebook shows it.
 _Avoid_: fact score, confidence
+
+**Structural guard**:
+The notebook's check that keeps a class from becoming a fact class when most of its instances are referenced by other instances (dimension-like) or it has no measure and no link.
 
 **Otsu threshold** (τ*):
 The cut on fact probabilities that maximises between-class variance; classes with p_c ≥ τ* become cubes.
@@ -54,9 +61,12 @@ _Avoid_: data cube
 The multidimensional knowledge graph built from one raw KG: its QB4OLAP schema graph plus its observation graph, holding one cube per fact class.
 _Avoid_: output graph, cube (a cube is one fact class inside an MDKG)
 
-**MDKG file**:
-A saved MDKG: TriG holding its schema graph and observation graph (`<kg>.mdkg.trig`), optionally zipped with `identity.ttl`. The only thing the three sections exchange.
+**MDKG file** (MDKG folder):
+A saved MDKG, exactly as the KG2MD notebook writes it: `<kg>/factclass_selection.json`, `<kg>/kg2md.log` and per cube `<kg>/fact_classes/<FactClass>_<hash>/` with `mdkg_schema.ttl`, `mdkg_data.ttl` and the self-contained bundle `mdkg_dataset.nq` (source, schema and cube graphs). Optionally zipped with `identity.ttl`. The only thing the three sections exchange.
 _Avoid_: export, dump
+
+**Notebook run**:
+One execution of the vendored KG2MD notebook's code cells on one KG's TBox + ABox (`kg2md.notebook.run_notebook`). Build is a notebook run per KG.
 
 **Workspace**:
 One section's own store (build, query or ask); workspaces never share state.

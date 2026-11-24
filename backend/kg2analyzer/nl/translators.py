@@ -125,8 +125,8 @@ class GroundedParser:
             rows = []
             for d in cube.dimensions:
                 for lvl in d.levels:
-                    q = (f"SELECT DISTINCT ?m ?l WHERE {{ GRAPH <{cube.graph}> {{ ?m a <{lvl}> ; "
-                         f"<http://www.w3.org/2000/01/rdf-schema#label> ?l }} }}")
+                    q = (f"SELECT DISTINCT ?m ?l WHERE {{ GRAPH <{cube.graph}> {{ {Catalog.member_pattern('m', lvl)} . "
+                         f"?m <http://www.w3.org/2000/01/rdf-schema#label> ?l }} }}")
                     for r in self.store.query(q).rows:
                         rows.append((r["m"], str(r["l"]), d.prop, lvl))
             self._members[cube.kg] = rows
@@ -148,9 +148,9 @@ class GroundedParser:
         # words inside a measure's own name are not aggregate requests ("occupancy count", "max temperature")
         for c in cubes or []:
             for m in c.measures:
-                phrase = " ".join(tokens(local_name(m.iri)))
-                if len(phrase.split()) > 1:
-                    ql = re.sub(rf"\b{re.escape(phrase)}\b", " ", ql)
+                for phrase in {" ".join(tokens(local_name(m.iri))), " ".join(tokens(m.label))}:
+                    if len(phrase.split()) > 1:
+                        ql = re.sub(rf"\b{re.escape(phrase)}\b", " ", ql)
         for agg, words in AGG_WORDS:
             if any(re.search(rf"\b{re.escape(w)}\b", ql) for w in words):
                 if agg == "max" and re.search(r"\btop\s+\d+", ql):
@@ -180,10 +180,10 @@ class GroundedParser:
             w = word.rstrip("s") if len(word) > 3 else word
             for d in cube.dimensions:  # level names first (Category, Month, Country ...)
                 for lvl in d.levels:
-                    if w in [t.rstrip("s") for t in tokens(local_name(lvl))]:
+                    if w in [t.rstrip("s") for t in tokens(d.level_name(lvl))]:
                         return (d.prop, lvl)
             for d in cube.dimensions:  # then dimension property names (customer, store, trader ...)
-                if w in [t.rstrip("s") for t in tokens(local_name(d.prop))]:
+                if w in [t.rstrip("s") for t in tokens(d.name)]:
                     return (d.prop, None)
         return None
 
@@ -214,7 +214,7 @@ class GroundedParser:
         return best
 
     def _date_dim(self, cube: CubeInfo):
-        return next((d for d in cube.dimensions if local_name(d.base_level).lower() in ("day", "date", "time")), None)
+        return next((d for d in cube.dimensions if d.level_name(d.base_level).lower() in ("day", "date", "time")), None)
 
     # -- translation ------------------------------------------------------------------
     def translate(self, question: str, prompt: str = "") -> str:
