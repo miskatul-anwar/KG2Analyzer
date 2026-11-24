@@ -17,9 +17,9 @@ def _kg_args(p: argparse.ArgumentParser, required: bool) -> None:
     p.add_argument("--no-link", action="store_true", help="do not discover owl:sameAs links between the KGs")
     p.add_argument("--threshold", type=float, default=0.6, help="auto-link score threshold (default 0.6)")
     p.add_argument("--max-facts", type=int, help="cap the fact cubes per KG (built-in engine only)")
-    p.add_argument("--decider", choices=["tev1", "structural"],
-                   help="who answers KG2MD's questions: tev1 (default, needs `uv sync --extra tev1`) or the "
-                        "structural stand-in (not Tev1; for machines without PyTorch)")
+    p.add_argument("--decider", choices=["tev1", "ml", "structural"],
+                   help="who answers KG2MD's questions: tev1 (default, needs `uv sync --extra tev1`), ml (trained "
+                        "classifiers, no PyTorch; not Tev1) or structural (simple rules)")
 
 
 def _summary(rep: dict) -> str:
@@ -80,6 +80,8 @@ def main(argv: list[str] | None = None) -> None:
     a.add_argument("question")
     _kg_args(a, required=False)
     a.add_argument("--mdkgs", nargs="*", metavar="PATH", help="saved MDKG files/folders/zips")
+    t = sub.add_parser("train-decider", help="retrain the ML decider (models/decider.joblib) on the generated corpus")
+    t.add_argument("--seed", type=int, default=7)
     n = sub.add_parser("sync-notebook", help="replace the bundled KG2MD notebook with a newer copy")
     n.add_argument("notebook", help="path to KG2MD_ML_Explainable_Otsu_MultiFact.ipynb")
     args = p.parse_args(argv)
@@ -94,6 +96,10 @@ def main(argv: list[str] | None = None) -> None:
         (out / "identity.ttl").write_text(az.store.identity.serialize(format="turtle"))
         (out / "report.json").write_text(json.dumps(rep, indent=2, default=str))
         print(f"wrote {len(rep['kgs'])} MDKG folder(s), identity.ttl and report.json to {out}/", file=sys.stderr)
+    elif args.cmd == "train-decider":
+        from kg2analyzer.kg2md.ml_decider import train
+
+        train(seed=args.seed)
     elif args.cmd == "sync-notebook":
         from kg2analyzer.kg2md.notebook import NOTEBOOK, code_cells
 

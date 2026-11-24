@@ -126,7 +126,9 @@ def test_pipeline_endpoint_accepts_many_files_and_zip_archives(bench):
     body = r.json()
     assert sorted(k["kg"] for k in body["kgs"]) == ["finance", "retail"]
     assert body["identity"]["links_added"] == 2  # Alice and Bob
-    assert client.get("/api/kgs/retail/mdkg.trig").status_code == 200
+    files = client.get("/api/mdkg/files", params={"kg": "retail"}).json()["files"]
+    bundle = next(f["path"] for f in files if f["path"].endswith("mdkg_dataset.nq"))
+    assert client.get("/api/mdkg/file", params={"path": bundle}).status_code == 200
     assert client.get("/api/mdkg.zip").headers["content-type"] == "application/zip"
 
 

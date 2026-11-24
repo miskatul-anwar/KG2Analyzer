@@ -23,7 +23,7 @@ A class whose instances are measured events (sales, trades, readings); each inst
 _Avoid_: fact table, event class
 
 **Decider**:
-The model that answers KG2MD's four multiple-choice questions (fact class? aggregate function? unit of measure? level attribute?). In Build it is **Tev1** (`togethercomputer/Tev1-0.8B-experimental`), read from the next-token probabilities of the option letters. The **structural stand-in** (`KG2A_DECIDER=structural`) answers from structure and names; it is for tests and machines without PyTorch, never presented as Tev1.
+The model that answers KG2MD's four multiple-choice questions (fact class? aggregate function? unit of measure? level attribute?). In Build it is **Tev1** (`togethercomputer/Tev1-0.8B-experimental`), read from the next-token probabilities of the option letters. With Tev1 switched off, the **ML classifiers** decide (`ml`): logistic regressions over the meaning and spelling of class and property names and their structure, trained on a generated corpus, each answer explained. The **structural stand-in** (`structural`) uses simple rules only. Neither is ever presented as Tev1.
 _Avoid_: classifier, LLM (for the decider)
 
 **Fact probability** (p_c):

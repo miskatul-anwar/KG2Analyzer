@@ -117,7 +117,8 @@ def _decider_name(a: KG2Analyzer) -> str:
         return getattr(a.decider, "model_id", type(a.decider).__name__)
     from kg2analyzer.kg2md.notebook import TEV1_MODEL_ID
 
-    return "structural (not Tev1)" if os.environ.get("KG2A_DECIDER", "tev1").lower() == "structural" else TEV1_MODEL_ID
+    return {"structural": "structural (not Tev1)", "ml": "ML classifiers (not Tev1)"}.get(
+        os.environ.get("KG2A_DECIDER", "tev1").lower(), TEV1_MODEL_ID)
 
 
 @app.post("/api/kgs")
@@ -369,7 +370,7 @@ async def sparql_source(kg: str, request: Request, a: KG2Analyzer = W):
 @app.post("/api/pipeline")
 async def pipeline(files: list[UploadFile] = File(...), auto_link: bool = Form(True), threshold: float = Form(0.6),
                    reset: bool = Form(True), max_facts: int | None = Form(None),
-                   decider: str | None = Form(None, description="tev1 | structural (Tev1 switched off)"), a: KG2Analyzer = W):
+                   decider: str | None = Form(None, description="tev1 | ml (Tev1 switched off) | structural"), a: KG2Analyzer = W):
     """Upload a set of raw KGs (files, TBox/ABox pairs, zips, owl:sameAs files): build every MDKG and link them."""
     from kg2analyzer.ingest import RdfFile
 
@@ -463,6 +464,8 @@ if (WEB_DIST / "index.html").exists():
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):
+        if path == "api" or path.startswith(("api/", "sparql/")):  # an unknown API path is a 404, never the web page
+            raise HTTPException(404, f"no API route /{path}")
         f = WEB_DIST / path
         if path and f.is_file() and WEB_DIST in f.resolve().parents:
             return FileResponse(f)

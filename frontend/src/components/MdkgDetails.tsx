@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CartesianGrid, Cell, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Decision } from "@/api/client";
-import { Card, Chip, DataTable, ErrorBox, Kpi, Spinner } from "@/components/kit";
+import { Card, Chip, DataTable, ErrorBox, Kpi, SignedChip, Spinner } from "@/components/kit";
 import { localName, SERIES } from "@/lib/format";
 
 const pct = (v: number | null | undefined) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
@@ -20,7 +20,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
   const tau = r.otsu_threshold;
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <Card title="Fact classes · Tev1 + Otsu"
+      <Card title={`Fact classes · ${r.decider.includes("not Tev1") ? "ML classifiers" : "Tev1"} + Otsu`}
         subtitle={<>Decided by <b>{r.decider}</b> in {r.seconds}s · {tau === null ? "no score split, the best class was taken" : <>τ* = <b>{tau.toFixed(4)}</b></>} · {r.classes.filter((c) => c.selected).length} of {r.classes.length} eligible classes become cubes{r.separated_records ? ` · ${r.separated_records} reused record IRIs separated` : ""}</>}>
         <div className="h-72">
           <ResponsiveContainer>
@@ -86,12 +86,15 @@ export function MdkgDetails({ kg }: { kg: string }) {
         </Card>
       ))}
 
-      <Card title="Every Tev1 decision" subtitle="The multiple-choice questions KG2MD asked, with the model's answer and probability.">
+      <Card title={`Every decision · ${r.decider}`} subtitle="The multiple-choice questions KG2MD asked, with the answer and its probability. For the ML classifiers, “why” shows how much the name's meaning, its spelling, the context and the structure pushed the answer.">
         <DataTable rows={r.decisions} max={400} columns={[
           { key: "question", header: "question", render: (d) => QUESTION[d.question] },
           { key: "profile", header: "about", render: (d) => <span className="font-medium">{subject(d)}</span> },
           { key: "prediction", header: "answer", render: (d) => <Chip tone="accent">{d.prediction}</Chip> },
           { key: "confidence", header: "p", numeric: true, decimals: 3 },
+          ...(r.decisions.some((d) => d.explanation) ? [{ key: "explanation" as const, header: "why", render: (d: Decision) => (
+            <div className="flex flex-wrap gap-1">{Object.entries(d.explanation ?? {}).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3).map(([k, v]) =>
+              <SignedChip key={k} name={k} value={v} />)}</div>) }] : []),
         ]} />
       </Card>
 

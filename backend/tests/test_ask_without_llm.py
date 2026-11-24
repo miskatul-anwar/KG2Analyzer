@@ -16,7 +16,7 @@ TINY = Path(__file__).parent / "fixtures" / "tiny"
 @pytest.fixture(scope="module")
 def az():
     a = KG2Analyzer(translator="rules")
-    a.ingest(read_paths([TINY]), decider="structural")
+    a.ingest(read_paths([TINY]), decider="ml")
     return a
 
 
@@ -62,7 +62,7 @@ def test_tev1_can_be_switched_off_per_build_over_http(monkeypatch):
 
     c = TestClient(server.app)
     files = [("files", (str(p.relative_to(TINY)), p.read_bytes(), "text/turtle")) for p in sorted(TINY.rglob("*.ttl"))]
-    off = c.post("/api/pipeline", data={"reset": "true", "decider": "structural"}, files=files)
+    off = c.post("/api/pipeline", data={"reset": "true", "decider": "ml"}, files=files)
     assert off.status_code == 200, off.text
     assert all("not by Tev1" in " ".join(k["warnings"]) for k in off.json()["kgs"])
     monkeypatch.setattr(notebook, "tev1_available", lambda: False)
@@ -77,7 +77,7 @@ def test_reset_all_returns_every_section_to_empty():
 
     c = TestClient(server.app)
     files = [("files", (str(p.relative_to(TINY)), p.read_bytes(), "text/turtle")) for p in sorted(TINY.rglob("*.ttl"))]
-    assert c.post("/api/pipeline", data={"reset": "true", "decider": "structural"}, files=files).status_code == 200
+    assert c.post("/api/pipeline", data={"reset": "true", "decider": "ml"}, files=files).status_code == 200
     saved = c.get("/api/mdkg.zip", params={"ws": "build"}).content
     for ws in ("query", "ask"):
         assert c.post("/api/mdkgs", params={"ws": ws}, files=[("files", ("mdkg.zip", saved, "application/zip"))]).status_code == 200
@@ -98,7 +98,7 @@ def test_query_and_ask_can_take_the_mdkgs_built_in_build_without_files():
     c.post("/api/reset-all")
     assert c.post("/api/mdkgs/from-build", params={"ws": "query"}).status_code == 400  # nothing built yet
     files = [("files", (str(p.relative_to(TINY)), p.read_bytes(), "text/turtle")) for p in sorted(TINY.rglob("*.ttl"))]
-    assert c.post("/api/pipeline", data={"reset": "true", "decider": "structural"}, files=files).status_code == 200
+    assert c.post("/api/pipeline", data={"reset": "true", "decider": "ml"}, files=files).status_code == 200
     for ws in ("query", "ask"):
         r = c.post("/api/mdkgs/from-build", params={"ws": ws})
         assert r.status_code == 200, r.text

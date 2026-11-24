@@ -31,6 +31,8 @@ export interface Catalog { identity_links: number; prefixes: Record<string, stri
 export interface Decision {
   question: "fact_class" | "aggregate" | "unit" | "level_attribute";
   profile: Record<string, unknown>; prediction: string; confidence: number; probabilities: Record<string, number>;
+  /** ML classifiers only: logit contribution of each feature group (name meaning, spelling, context, structure). */
+  explanation?: Record<string, number>;
 }
 export interface ClassScore {
   iri: string; label: string; instances: number; probability: number; selected: boolean; excluded_by_guard: boolean;

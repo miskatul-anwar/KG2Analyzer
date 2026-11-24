@@ -130,7 +130,7 @@ class StructuralDecider:
         return self._result({"attribute": 0.1 if meta else 0.9, "metadata": 0.9 if meta else 0.1})
 
 
-DECIDERS = ("tev1", "structural")
+DECIDERS = ("tev1", "ml", "structural")
 
 
 def tev1_available() -> bool:
@@ -218,17 +218,21 @@ class DeciderUnavailable(ValueError):
 
 
 def resolve_decider(name: str | None = None) -> Any:
-    """``tev1`` (the KG2MD model, cached answers) or ``structural`` (the stand-in, not Tev1).
-    ``None`` reads ``KG2A_DECIDER`` (default tev1)."""
+    """``tev1`` (the KG2MD model, cached answers), ``ml`` (trained classifiers, used when Tev1 is switched off)
+    or ``structural`` (simple rules). ``None`` reads ``KG2A_DECIDER`` (default tev1)."""
     choice = (name or os.environ.get("KG2A_DECIDER", "tev1")).lower()
     if choice == "structural":
         return StructuralDecider()
+    if choice == "ml":
+        from kg2analyzer.kg2md.ml_decider import MLDecider
+
+        return MLDecider()
     if choice != "tev1":
-        raise ValueError("the decider must be tev1 or structural")
+        raise ValueError("the decider must be tev1, ml or structural")
     if not tev1_available():
         raise DeciderUnavailable(
             "Tev1 needs PyTorch and transformers: run `uv sync --extra tev1` (the model, about 1.8 GB, downloads "
-            "on first use). Or switch Tev1 off to build with the structural stand-in (not the KG2MD decision model).")
+            "on first use). Or switch Tev1 off to build with the ML classifiers (not the KG2MD decision model).")
     inner = tev1_decider()
     return inner if os.environ.get("KG2A_TEV1_CACHE", "on").lower() in ("off", "0", "false", "no") else CachedDecider(inner)
 
@@ -264,7 +268,8 @@ class RecordingDecider:
         res = getattr(self.inner, fn)(profile, *a)
         self.decisions.append({"question": kind, "profile": json.loads(json.dumps(profile, default=str)),
                                "prediction": res["prediction"], "confidence": round(float(res["confidence"]), 6),
-                               "probabilities": {k: round(float(v), 6) for k, v in res["probabilities"].items()}})
+                               "probabilities": {k: round(float(v), 6) for k, v in res["probabilities"].items()},
+                               **({"explanation": res["explanation"]} if res.get("explanation") else {})})
         return res
 
     def decide(self, profile: dict) -> dict:

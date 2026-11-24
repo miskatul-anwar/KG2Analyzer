@@ -252,8 +252,8 @@ class KG2Analyzer:
         run = self.runs[name]
         inp = self.inputs.get(name, {"tbox_files": [], "abox_files": []})
         warnings = []
-        if run["decider"].startswith("structural"):
-            warnings.append("Decided by the structural stand-in (KG2A_DECIDER=structural), not by Tev1.")
+        if "Tev1" not in run["decider"] or "not Tev1" in run["decider"]:
+            warnings.append(f"Decided by {run['decider'].replace('; not Tev1', '').replace(' (not Tev1)', '')}, not by Tev1.")
         if not run["tbox_triples"]:
             warnings.append("No TBox supplied: classes and properties were inferred from the ABox alone.")
         undeclared = [p for p in run["undeclared_properties"] if not p.startswith(_STANDARD_NS)]

@@ -106,7 +106,7 @@ def test_build_query_and_ask_are_separate_workspaces_connected_only_by_files(cli
     a = client.post("/api/ask", params={"ws": "ask"},
                     json={"question": "Show total retail sales and investment trade volume for our shared corporate clients"}).json()
     assert a["status"] == "executed" and len(a["rows"]) == 2
-    assert client.get("/api/x", params={"ws": "nope"}).status_code in (404, 200)  # SPA fallback may serve unknown paths
+    assert client.get("/api/x", params={"ws": "nope"}).status_code == 404  # unknown API paths are never the SPA page
     assert client.get("/api/mdkgs", params={"ws": "nope"}).status_code == 404
 
 
