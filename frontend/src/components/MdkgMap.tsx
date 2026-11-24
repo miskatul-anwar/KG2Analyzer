@@ -3,11 +3,13 @@
  * each fact cube is a hub, its dimension levels hang off it along the roll-up steps,
  * and shared entities are tied across MDKGs with owl:sameAs edges.
  */
-import { ControlsContainer, FullScreenControl, SigmaContainer, useLoadGraph, useRegisterEvents, useSetSettings, useSigma, ZoomControl } from "@react-sigma/core";
+import { SigmaContainer, useLoadGraph, useRegisterEvents, useSetSettings, useSigma } from "@react-sigma/core";
 import "@react-sigma/core/lib/style.css";
 import Graph from "graphology";
 import forceAtlas2 from "graphology-layout-forceatlas2";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { TbFocusCentered, TbMaximize, TbMinimize, TbMinus, TbPlus } from "react-icons/tb";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Catalog, IdentityLink } from "@/api/client";
 import { cssVar, localName, SERIES } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
@@ -88,6 +90,40 @@ function Loader({ graph, onHover }: { graph: Graph<NodeAttrs>; onHover: (n: stri
   return null;
 }
 
+/** Zoom in / out, fit the whole graph, full screen: themed buttons on Sigma's camera (replaces react-sigma's controls). */
+function MapControls({ frame }: { frame: RefObject<HTMLDivElement | null> }) {
+  const sigma = useSigma();
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const on = () => setFull(document.fullscreenElement === frame.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, [frame]);
+  const cam = () => sigma.getCamera();
+  const buttons: [ReactNode, string, () => void][] = [
+    [<TbPlus />, "Zoom in", () => void cam().animatedZoom({ duration: 200 })],
+    [<TbMinus />, "Zoom out", () => void cam().animatedUnzoom({ duration: 200 })],
+    [<TbFocusCentered />, "Fit the whole graph", () => void cam().animatedReset({ duration: 300 })],
+    [full ? <TbMinimize /> : <TbMaximize />, full ? "Exit full screen" : "Full screen",
+      () => void (document.fullscreenElement ? document.exitFullscreen() : frame.current?.requestFullscreen())],
+  ];
+  return (
+    <div className="absolute bottom-3 right-3 z-10 flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border bg-card/95 shadow-sm backdrop-blur">
+      {buttons.map(([icon, label, fn]) => (
+        <Tooltip key={label}>
+          <TooltipTrigger asChild>
+            <button type="button" aria-label={label} onClick={fn}
+              className="flex size-8 items-center justify-center text-ink-2 transition-colors hover:bg-raised hover:text-ink focus-visible:outline-2 focus-visible:outline-brand [&_svg]:size-4">
+              {icon}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="left">{label}</TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
+
 export function MdkgMap({ cat, links, height = 460 }: { cat: Catalog; links: IdentityLink[]; height?: number }) {
   const [theme] = useTheme();
   const [hover, setHover] = useState<string | null>(null);
@@ -110,12 +146,12 @@ export function MdkgMap({ cat, links, height = 460 }: { cat: Catalog; links: Ide
   }), [theme]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div ref={box} className="relative overflow-hidden rounded-xl border border-border bg-[radial-gradient(circle_at_center,var(--c-surface),var(--c-canvas))]" style={{ height }}>
+    <div ref={box} className="relative overflow-hidden rounded-xl border border-border bg-[radial-gradient(circle_at_center,var(--c-surface),var(--c-canvas))] [&:fullscreen]:rounded-none [&:fullscreen]:bg-canvas" style={{ height }}>
       {/* The loader imports `graph` into Sigma's own instance; passing it here too would make the loader clear its own source. */}
       {sized && (
         <SigmaContainer key={theme} settings={settings} style={{ height: "100%", background: "transparent" }}>
           <Loader graph={graph} onHover={setHover} />
-          <ControlsContainer position="bottom-right"><ZoomControl /><FullScreenControl /></ControlsContainer>
+          <MapControls frame={box} />
         </SigmaContainer>
       )}
       <div className="pointer-events-none absolute left-3 top-3 flex max-w-[70%] flex-wrap gap-x-3 gap-y-1 text-xs text-ink-2">

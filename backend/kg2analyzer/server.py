@@ -145,14 +145,26 @@ def attach_remote(req: RemoteReq, a: KG2Analyzer = W):
     return guarded(a, lambda: (a.attach_remote(req.name, req.url), ok({"attached": req.name}))[1])
 
 
-@app.post("/api/reset")
-def reset_workspace(a: KG2Analyzer = W):
+def _clear(a: KG2Analyzer) -> None:
     for kg in list(a.store.sources):
         a.remove_kg(kg)
     a.store.identity.remove((None, None, None))
     a.last_report = {}
     a._invalidate()
-    return ok({"reset": True})
+
+
+@app.post("/api/reset")
+def reset_workspace(a: KG2Analyzer = W):
+    return guarded(a, lambda: (_clear(a), ok({"reset": True}))[1])
+
+
+@app.post("/api/reset-all")
+def reset_all():
+    """Back to the very first state: Build, Query and Ask emptied and the translator back to its default.
+    Files the user saved are untouched, and so is the Tev1 answer cache (it only makes builds faster)."""
+    for a in WORKSPACES.values():
+        guarded(a, lambda a=a: (_clear(a), a.set_translator(os.environ.get("KG2A_TRANSLATOR"))))
+    return ok({"reset": list(WORKSPACES)})
 
 
 @app.delete("/api/kgs/{kg}")

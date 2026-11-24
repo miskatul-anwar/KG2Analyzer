@@ -158,6 +158,8 @@ export const api = {
   status: (ws: Ws) => get<Status>(ws, "/api/status"),
   catalog: (ws: Ws) => get<Catalog>(ws, "/api/catalog"),
   reset: (ws: Ws) => post<{ reset: boolean }>(ws, "/api/reset", {}),
+  /** Every section back to empty, as when the app was first opened. */
+  resetAll: () => request<{ reset: Ws[] }>("/api/reset-all", { method: "POST" }),
   deleteKg: (ws: Ws, kg: string) => request<{ removed: string }>(withWs(`/api/kgs/${encodeURIComponent(kg)}`, ws), { method: "DELETE" }),
   // Build: raw KGs (TBox + ABox) -> MDKGs
   pipeline: (form: FormData) => upload<PipelineReport>("build", "/api/pipeline", form),

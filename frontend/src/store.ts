@@ -21,6 +21,8 @@ export const EMPTY_QUERY: QuerySel = {
   compareKg: "", compareMeasure: "", join: null, mode: "integrated",
 };
 
+const DEFAULT_SPARQL = "PREFIX qb: <http://purl.org/linked-data/cube#>\nSELECT ?g (COUNT(?o) AS ?observations)\nWHERE { GRAPH ?g { ?o a qb:Observation } }\nGROUP BY ?g ORDER BY DESC(?observations)";
+
 interface UiState {
   theme: "light" | "dark" | null; // null = follow the OS
   setTheme: (t: "light" | "dark") => void;
@@ -36,6 +38,8 @@ interface UiState {
   pushAnswer: (a: Answer) => void;
   clearChat: () => void;
   resetForNewData: () => void;
+  /** Everything back to the first-visit defaults (the theme is kept). */
+  resetAll: () => void;
   /** Build: decide with Tev1 (true) or the structural stand-in (false). null = Tev1 when installed. */
   useTev1: boolean | null;
   setUseTev1: (v: boolean) => void;
@@ -65,7 +69,7 @@ export const useUi = create<UiState>()(
       setQuery: (patch) => set((s) => ({ query: { ...s.query, ...patch } })),
       queryTab: "builder",
       setQueryTab: (queryTab) => set({ queryTab }),
-      sparql: "PREFIX qb: <http://purl.org/linked-data/cube#>\nSELECT ?g (COUNT(?o) AS ?observations)\nWHERE { GRAPH ?g { ?o a qb:Observation } }\nGROUP BY ?g ORDER BY DESC(?observations)",
+      sparql: DEFAULT_SPARQL,
       setSparql: (sparql) => set({ sparql }),
       openKg: "",
       setOpenKg: (openKg) => set({ openKg }),
@@ -77,6 +81,7 @@ export const useUi = create<UiState>()(
       setUseTev1: (useTev1) => set({ useTev1 }),
       useLlm: false,
       setUseLlm: (useLlm) => set({ useLlm }),
+      resetAll: () => set({ query: EMPTY_QUERY, queryTab: "builder", sparql: DEFAULT_SPARQL, openKg: "", chat: [], useTev1: null, useLlm: false }),
     }),
     { name: "kg2analyzer-ui", version: 1, storage: safeStorage },
   ),

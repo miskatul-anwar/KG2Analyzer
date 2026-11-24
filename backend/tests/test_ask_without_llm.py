@@ -68,3 +68,22 @@ def test_tev1_can_be_switched_off_per_build_over_http(monkeypatch):
     monkeypatch.setattr(notebook, "tev1_available", lambda: False)
     on = c.post("/api/pipeline", data={"reset": "true", "decider": "tev1"}, files=files)
     assert on.status_code == 400 and "uv sync --extra tev1" in on.json()["detail"]
+
+
+def test_reset_all_returns_every_section_to_empty():
+    from fastapi.testclient import TestClient
+
+    from kg2analyzer import server
+
+    c = TestClient(server.app)
+    files = [("files", (str(p.relative_to(TINY)), p.read_bytes(), "text/turtle")) for p in sorted(TINY.rglob("*.ttl"))]
+    assert c.post("/api/pipeline", data={"reset": "true", "decider": "structural"}, files=files).status_code == 200
+    saved = c.get("/api/mdkg.zip", params={"ws": "build"}).content
+    for ws in ("query", "ask"):
+        assert c.post("/api/mdkgs", params={"ws": ws}, files=[("files", ("mdkg.zip", saved, "application/zip"))]).status_code == 200
+    c.post("/api/translator", params={"ws": "ask"}, json={"spec": "rules"})
+    assert c.post("/api/reset-all").status_code == 200
+    for ws in ("build", "query", "ask"):
+        st = c.get("/api/status", params={"ws": ws}).json()
+        assert st["kgs"] == [] and st["cubes"] == 0 and st["identity_links"] == 0, ws
+    assert c.get("/api/overview").json()["kgs"] == []

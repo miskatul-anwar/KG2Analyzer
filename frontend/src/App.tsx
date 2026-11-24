@@ -1,9 +1,11 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { AnimatePresence, motion } from "motion/react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { PiCubeFocusDuotone, PiGraphDuotone } from "react-icons/pi";
-import { TbChecks, TbMessageChatbot, TbMoon, TbSearch, TbSun, TbTable } from "react-icons/tb";
+import { TbChecks, TbMessageChatbot, TbMoon, TbRestore, TbSearch, TbSun, TbTable } from "react-icons/tb";
+import { toast } from "sonner";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, type Ws } from "@/api/client";
 import { useCatalog, useStatus, useSuggestions } from "@/api/hooks";
@@ -93,6 +95,7 @@ export default function App() {
                   <TooltipContent>{section === "build" ? "Built in step 1" : `Loaded in ${section}`}: {st.kgs.length} MDKGs{section === "ask" ? ` · NL translator: ${st.translator}` : section === "build" ? ` · KG2MD decider: ${st.decider}` : ""}</TooltipContent>
                 </Tooltip>
               )}
+              <ResetAll />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">{theme === "dark" ? <TbSun /> : <TbMoon />}</Button>
@@ -121,6 +124,51 @@ export default function App() {
         <Toaster richColors position="bottom-right" />
       </div>
     </TooltipProvider>
+  );
+}
+
+/** Back to the very first state: all three sections emptied, selections, chat and switches cleared. */
+function ResetAll() {
+  const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  const reset = useMutation({
+    mutationFn: api.resetAll,
+    onSuccess: async () => {
+      useUi.getState().resetAll();
+      qc.clear();
+      setOpen(false);
+      nav("/build", { replace: true });
+      toast.success("Back to a clean start", { description: "Build, Query and Ask are empty. Files you saved are untouched." });
+    },
+  });
+  return (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" onClick={() => setOpen(true)} aria-label="Reset everything"><TbRestore /></Button>
+        </TooltipTrigger>
+        <TooltipContent>Reset everything</TooltipContent>
+      </Tooltip>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset everything?</DialogTitle>
+            <DialogDescription>
+              All three sections go back to empty: built MDKGs, loaded MDKGs, identity links, query selections, the Ask chat
+              and the Tev1/LLM switches. MDKG files you saved stay where they are.
+            </DialogDescription>
+          </DialogHeader>
+          {reset.error && <p className="text-sm text-bad">{String(reset.error)}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="destructive" disabled={reset.isPending} onClick={() => reset.mutate()}>
+              <TbRestore />{reset.isPending ? "Resetting…" : "Reset everything"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
