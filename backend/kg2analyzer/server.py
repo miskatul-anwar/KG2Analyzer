@@ -280,6 +280,12 @@ def ask(req: AskReq, a: KG2Analyzer = W):
     return guarded(a, lambda: ok(a.ask(req.question).to_dict()))
 
 
+@app.get("/api/ask/jobs/{job}")
+def ask_job(job: str, a: KG2Analyzer = W):
+    """The LLM's answer to an earlier question, once it is ready (state: running | done | invalid | timeout)."""
+    return guarded(a, lambda: ok(a.ask_job(job)))
+
+
 @app.get("/api/overview")
 def overview(a: KG2Analyzer = W):
     return guarded(a, lambda: ok(a.overview()))

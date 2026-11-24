@@ -97,12 +97,17 @@ class OllamaTranslator:
             pass
 
     def translate(self, question: str, prompt: str) -> str:
-        r = httpx.post(self.url + "/api/generate", timeout=self.timeout, json={
-            "model": self.model, "prompt": prompt, "stream": False, "keep_alive": self.keep_alive,
-            "options": {"temperature": 0, "num_predict": int(os.environ.get("KG2A_LLM_MAX_TOKENS", "512")),
-                        "num_ctx": int(os.environ.get("KG2A_LLM_NUM_CTX", "8192"))}})
+        body = {"model": self.model, "prompt": prompt, "stream": False, "keep_alive": self.keep_alive,
+                # thinking models (qwen3, deepseek-r1 ...) would first write a long hidden reasoning: skip it
+                "think": False,
+                "options": {"temperature": 0, "num_predict": int(os.environ.get("KG2A_LLM_MAX_TOKENS", "512")),
+                            "num_ctx": int(os.environ.get("KG2A_LLM_NUM_CTX", "8192"))}}
+        r = httpx.post(self.url + "/api/generate", timeout=self.timeout, json=body)
+        if r.status_code == 400 and "think" in r.text.lower():  # an Ollama or model that rejects the option
+            body.pop("think")
+            r = httpx.post(self.url + "/api/generate", timeout=self.timeout, json=body)
         r.raise_for_status()
-        return r.json().get("response", "")
+        return strip_thinking(r.json().get("response", ""))
 
 
 class OpenAICompatibleTranslator:
@@ -375,6 +380,12 @@ class GroundedParser:
 def identity_intent(question: str) -> bool:
     ql = question.lower()
     return any(w in ql for w in IDENTITY_WORDS)
+
+
+def strip_thinking(text: str) -> str:
+    """Drop a reasoning block (<think>...</think>, also an unterminated one) that some models emit before answering."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S | re.I)
+    return re.sub(r"<think>.*", "", text, flags=re.S | re.I).strip()
 
 
 def extract_sparql(text: str) -> str:

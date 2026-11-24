@@ -95,7 +95,11 @@ export interface Answer {
   insight: string; seconds: number;
   attempts: { translator: string; sparql: string; ok: boolean; checks: Check[] }[];
   trace: { cubes?: string[]; measures?: string[]; aggregate?: string | null; group_by?: string[]; filters?: string[]; intent?: string;
-    matches?: string[]; cached?: boolean };
+    matches?: string[]; cached?: boolean;
+    /** set while the chosen LLM is still drafting in the background; poll api.askJob */
+    llm_job?: string; llm?: string;
+    /** how the background LLM draft ended, when it did not replace the answer */
+    llm_result?: "invalid" | "timeout" };
 }
 
 export interface SparqlResult { columns: string[]; rows: Row[]; seconds: number }
@@ -126,6 +130,8 @@ export interface JoinOption { left_dim: string; right_dim: string; link: "identi
 
 export interface LlmModel { name: string; size_gb: number; parameters: string | null; family: string | null; quantization: string | null; loaded: boolean }
 export interface LlmModels { server: string; reachable: boolean; models: LlmModel[]; error: string | null; current: string }
+
+export interface AskJob { state: "running" | "done" | "invalid" | "timeout"; seconds: number; llm?: string; answer?: Answer }
 
 export class ApiError extends Error {}
 
@@ -194,4 +200,5 @@ export const api = {
   setTranslator: (spec: string) => post<{ translator: string }>("ask", "/api/translator", { spec }),
   /** The models installed in the Ollama server Ask uses. */
   llmModels: () => get<LlmModels>("ask", "/api/llm/models"),
+  askJob: (job: string) => get<AskJob>("ask", `/api/ask/jobs/${encodeURIComponent(job)}`),
 };

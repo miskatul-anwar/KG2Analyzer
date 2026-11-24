@@ -70,7 +70,12 @@ class NLInterface:
         self._answers: dict[str, Answer] = {}
         import os
 
-        self.budget = float(os.environ.get("KG2A_LLM_BUDGET", "30"))  # seconds the LLM gets before the parser answers
+        from concurrent.futures import ThreadPoolExecutor
+
+        self.budget = float(os.environ.get("KG2A_LLM_BUDGET", "120"))  # seconds the LLM gets in the background
+        self.patience = float(os.environ.get("KG2A_LLM_PATIENCE", "1.5"))  # seconds to wait before answering with the parser
+        self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="llm")
+        self._jobs: dict[str, tuple] = {}
 
     def _node_exists(self, iri: str) -> bool:
         from rdflib import URIRef
@@ -105,8 +110,8 @@ class NLInterface:
             ans.trace = {**ans.trace, "cached": True}
             return ans
         ans = self._ask(question)
-        if ans.status in ("executed", "fallback", "rejected"):
-            self._answers[key] = copy.deepcopy(ans)
+        if ans.status in ("executed", "fallback", "rejected") and "llm_job" not in ans.trace:
+            self._answers[key] = copy.deepcopy(ans)  # an interim answer is remembered once its LLM job ends
         return ans
 
     def _llm_attempts(self, question: str) -> list[Attempt]:
@@ -122,50 +127,91 @@ class NLInterface:
     def _ask(self, question: str) -> Answer:
         t0 = time.perf_counter()
         ans = Answer(question, "rejected")
+        job = None
         if self.translator is self.parser:
             a = self._attempt(self.parser, question, "")
             ans.attempts.append(a)
             if a.ok:
                 ans.status, ans.sparql = "executed", a.sparql
         else:
-            # The LLM drafts (with error-fed retries) in a worker; meanwhile the grounded parser answers in
-            # milliseconds. If the LLM has no valid query within the time budget, the parser's answer is used.
-            from concurrent.futures import ThreadPoolExecutor
+            # The LLM drafts (with error-fed retries) in a worker while the grounded parser answers in
+            # milliseconds. A quick LLM answer is used at once; otherwise the parser's answer is returned now and
+            # the LLM keeps working as a job (``job``) whose answer replaces it, until KG2A_LLM_BUDGET runs out.
             from concurrent.futures import TimeoutError as Late
 
-            pool = ThreadPoolExecutor(max_workers=1)
-            future = pool.submit(self._llm_attempts, question)
+            future = self._pool.submit(self._llm_attempts, question)
             parsed = self._attempt(self.parser, question, "")
             try:
-                drafts = future.result(timeout=self.budget)
+                drafts = future.result(timeout=self.patience)
             except Late:
-                drafts = [Attempt(self.translator.name, "", "", [Check(
-                    "syntax", False, f"no answer within {self.budget:g} s (KG2A_LLM_BUDGET); the grounded parser answered")])]
-            pool.shutdown(wait=False)
-            ans.attempts += drafts
-            good = next((a for a in drafts if a.ok), None)
-            if good:
-                ans.status, ans.sparql = "executed", good.sparql
+                drafts = None
+            if drafts is not None:
+                ans.attempts += drafts
+                good = next((a for a in drafts if a.ok), None)
+                if good:
+                    ans.status, ans.sparql = "executed", good.sparql
+                else:
+                    ans.attempts.append(parsed)
+                    if parsed.ok:
+                        ans.status, ans.sparql = "fallback", parsed.sparql
             else:
+                import uuid
+
+                job = uuid.uuid4().hex[:12]
                 ans.attempts.append(parsed)
                 if parsed.ok:
-                    ans.status, ans.sparql = "fallback", parsed.sparql
+                    ans.status, ans.sparql = "executed", parsed.sparql
         if self.parser.last_trace.cubes or self.parser.last_trace.intent:
             ans.trace = asdict(self.parser.last_trace)
+        self._run(ans)
+        ans.seconds = time.perf_counter() - t0
+        if job:
+            ans.trace = {**ans.trace, "llm_job": job, "llm": self.translator.name}
+            self._jobs[job] = (future, question, time.monotonic(), ans)
+        return ans
+
+    def _run(self, ans: Answer) -> None:
+        """Execute a validated query and summarise it (or explain the rejection)."""
         if not ans.sparql:
             last = ans.attempts[-1] if ans.attempts else None
             reasons = "; ".join(f"{c.rule}: {c.message}" for c in (last.checks if last else []) if not c.ok)
             ans.insight = f"Query rejected: out-of-scope or ungrounded vocabulary ({reasons}). Nothing was executed."
-            ans.seconds = time.perf_counter() - t0
-            return ans
+            return
         try:
             out = self.store.query(ans.sparql)
             ans.columns, ans.rows = out.vars, out.rows
             ans.insight = summarise(ans.columns, ans.rows, self.cat)
         except Exception as e:  # noqa: BLE001
             ans.status, ans.insight = "error", f"execution failed: {e}"
-        ans.seconds = time.perf_counter() - t0
-        return ans
+
+    def job(self, job_id: str) -> dict:
+        """State of a background LLM draft: running, done (with the LLM's answer), invalid, or timeout."""
+        import copy
+
+        if job_id not in self._jobs:
+            raise KeyError(f"no pending LLM answer {job_id!r}")
+        future, question, started, interim = self._jobs[job_id]
+        elapsed = time.monotonic() - started + interim.seconds
+        key = " ".join(question.lower().split())
+        if not future.done():
+            if elapsed <= self.budget:
+                return {"state": "running", "seconds": round(elapsed, 1), "llm": self.translator.name}
+            del self._jobs[job_id]
+            self._answers[key] = copy.deepcopy(interim)
+            return {"state": "timeout", "seconds": round(elapsed, 1), "llm": self.translator.name}
+        del self._jobs[job_id]
+        drafts = future.result()
+        good = next((a for a in drafts if a.ok), None)
+        if good is None:
+            self._answers[key] = copy.deepcopy(interim)
+            return {"state": "invalid", "seconds": round(elapsed, 1), "llm": self.translator.name,
+                    "attempts": [{"translator": a.translator, "sparql": a.sparql, "ok": a.ok,
+                                  "checks": [asdict(c) for c in a.checks]} for a in drafts]}
+        ans = Answer(question, "executed", sparql=good.sparql, attempts=drafts, trace={"llm": self.translator.name})
+        self._run(ans)
+        ans.seconds = elapsed
+        self._answers[key] = copy.deepcopy(ans)
+        return {"state": "done", "seconds": round(elapsed, 1), "answer": ans.to_dict()}
 
 
 def summarise(cols: list[str], rows: list[dict], cat: Catalog) -> str:

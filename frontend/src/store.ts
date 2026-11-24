@@ -36,6 +36,7 @@ interface UiState {
   setOpenKg: (kg: string) => void;
   chat: Answer[];
   pushAnswer: (a: Answer) => void;
+  replaceAnswer: (i: number, a: Answer) => void;
   clearChat: () => void;
   resetForNewData: () => void;
   /** Everything back to the first-visit defaults (the theme is kept). */
@@ -78,6 +79,7 @@ export const useUi = create<UiState>()(
       setOpenKg: (openKg) => set({ openKg }),
       chat: [],
       pushAnswer: (a) => set((s) => ({ chat: [...s.chat, a].slice(-30) })),
+      replaceAnswer: (i, a) => set((s) => ({ chat: s.chat.map((x, j) => (j === i ? a : x)) })),
       clearChat: () => set({ chat: [] }),
       resetForNewData: () => set({ query: EMPTY_QUERY, openKg: "", chat: [] }),
       useTev1: null,

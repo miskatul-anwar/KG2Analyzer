@@ -99,14 +99,44 @@ def test_the_chosen_model_answers_and_its_sparql_is_validated(client, ollama):
     assert sent["model"] == "llama3.2:1b" and sent["keep_alive"] and sent["options"]["temperature"] == 0
 
 
-def test_a_slow_model_does_not_keep_the_user_waiting(client, ollama, monkeypatch):
+def poll(client, job, until=10.0):
+    t0 = time.perf_counter()
+    while time.perf_counter() - t0 < until:
+        r = client.get(f"/api/ask/jobs/{job}", params={"ws": "ask"}).json()
+        if r["state"] != "running":
+            return r
+        time.sleep(0.2)
+    raise AssertionError("LLM job still running")
+
+
+def test_a_slow_model_answers_later_while_the_parser_answers_at_once(client, ollama):
+    from kg2analyzer import server
+
+    ask = server.WORKSPACES["ask"]
+    ollama.reply = f"<think>The user wants fees per branch...</think>\n```sparql\n{ask.nl.parser.translate('Total fees per branch in the bank')}\n```"
+    ollama.delay = 1.5
+    client.post("/api/translator", params={"ws": "ask"}, json={"spec": "ollama:qwen2.5-coder:3b"})
+    ask.nl.patience = 0.2
+    t0 = time.perf_counter()
+    first = client.post("/api/ask", params={"ws": "ask"}, json={"question": "Total fees per branch in the bank"}).json()
+    assert time.perf_counter() - t0 < 1.0  # the grounded parser's answer, at once
+    assert first["status"] == "executed" and {r["branch_label"] for r in first["rows"]} == {"Gulshan", "Agrabad"}
+    assert first["trace"]["llm"] == "ollama:qwen2.5-coder:3b" and first["trace"]["llm_job"]
+    later = poll(client, first["trace"]["llm_job"])
+    assert later["state"] == "done" and later["answer"]["attempts"][0]["translator"] == "ollama:qwen2.5-coder:3b"
+    assert {r["branch_label"]: Decimal(str(r["total"])) for r in later["answer"]["rows"]} == {"Gulshan": Decimal("15"), "Agrabad": Decimal("3.5")}
+    assert ollama.prompts[-1]["think"] is False  # thinking models are asked not to think first
+    again = client.post("/api/ask", params={"ws": "ask"}, json={"question": "Total fees per branch in the bank"}).json()
+    assert again["trace"].get("cached") and again["attempts"][0]["translator"] == "ollama:qwen2.5-coder:3b"
+
+
+def test_a_model_that_never_answers_in_time_is_dropped(client, ollama):
     from kg2analyzer import server
 
     ollama.reply, ollama.delay = "", 3.0
     client.post("/api/translator", params={"ws": "ask"}, json={"spec": "ollama:qwen2.5-coder:3b"})
-    server.WORKSPACES["ask"].nl.budget = 0.5
-    t0 = time.perf_counter()
-    a = client.post("/api/ask", params={"ws": "ask"}, json={"question": "Total fees per branch in the bank"}).json()
-    assert time.perf_counter() - t0 < 2.5
-    assert a["status"] == "fallback" and "no answer within 0.5 s" in a["attempts"][0]["checks"][0]["message"]
-    assert {r["branch_label"] for r in a["rows"]} == {"Gulshan", "Agrabad"}
+    nl = server.WORKSPACES["ask"].nl
+    nl.patience, nl.budget = 0.2, 0.6
+    first = client.post("/api/ask", params={"ws": "ask"}, json={"question": "Total transfer amount by branch"}).json()
+    assert first["status"] == "executed" and first["rows"]
+    assert poll(client, first["trace"]["llm_job"])["state"] == "timeout"

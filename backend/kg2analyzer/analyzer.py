@@ -569,6 +569,10 @@ class KG2Analyzer:
     def ask(self, question: str) -> Answer:
         return self.nl.ask(question)
 
+    def ask_job(self, job_id: str) -> dict:
+        """Poll the LLM draft started by ``ask`` when it answered with the grounded parser first."""
+        return self.nl.job(job_id)
+
     def suggest_questions(self, limit: int = 6) -> list[str]:
         """Example questions built from the loaded MDKGs' own vocabulary.
 

@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -116,7 +116,7 @@ function AskBody() {
                 <motion.div key={`${i}-${a.question}`} layout initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}
                   className="flex flex-col gap-2">
                   <div className="self-end rounded-2xl rounded-br-md bg-brand px-4 py-2 text-white shadow-sm">{a.question}</div>
-                  <AnswerBubble a={a} animate={i === fresh} />
+                  <AnswerBubble a={a} index={i} animate={i === fresh} />
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -150,7 +150,26 @@ function AskBody() {
   );
 }
 
-function AnswerBubble({ a, animate }: { a: Answer; animate: boolean }) {
+/** While the chosen LLM is still drafting in the background, poll it; its answer replaces the parser's. */
+function useLlmUpgrade(a: Answer, index: number) {
+  const replace = useUi((s) => s.replaceAnswer);
+  const job = a.trace?.llm_job;
+  const { data, error } = useQuery({
+    queryKey: ["ask", "job", job], queryFn: () => api.askJob(job!), enabled: !!job, staleTime: Infinity, retry: false,
+    refetchInterval: (q) => (q.state.data?.state === "running" ? 1500 : false),
+  });
+  useEffect(() => {
+    if (!job) return;
+    const strip = { ...a.trace, llm_job: undefined };
+    if (error) replace(index, { ...a, trace: strip });  // the server restarted or the model changed
+    else if (data?.state === "done" && data.answer) replace(index, { ...data.answer, question: a.question });
+    else if (data && (data.state === "invalid" || data.state === "timeout")) replace(index, { ...a, trace: { ...strip, llm_result: data.state } });
+  }, [data, error]); // eslint-disable-line react-hooks/exhaustive-deps
+  return job ? (data?.seconds ?? 0) : null;
+}
+
+function AnswerBubble({ a, index, animate }: { a: Answer; index: number; animate: boolean }) {
+  const waiting = useLlmUpgrade(a, index);
   const ok = a.status === "executed" || a.status === "fallback";
   const cols = a.columns.filter((c) => !c.endsWith("_n"));
   const numCols = cols.filter((c) => a.rows.length && a.rows.every((r) => r[c] === null || typeof r[c] === "number"));
@@ -163,7 +182,12 @@ function AnswerBubble({ a, animate }: { a: Answer; animate: boolean }) {
       ok ? (a.status === "fallback" ? "border-warn/40" : "border-border") : "border-bad/40")}>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-3">
         <Chip tone={a.status === "executed" ? "good" : a.status === "fallback" ? "warn" : "bad"}>{a.status}</Chip>
-        <Chip tone={a.status === "fallback" ? "warn" : undefined}>{answeredBy(a)}</Chip>
+        <Chip tone={a.status === "fallback" || a.trace?.llm_result ? "warn" : undefined}>{answeredBy(a)}</Chip>
+        {waiting !== null && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/30 bg-brand/5 px-2 py-0.5 text-brand">
+            <span className="size-1.5 animate-pulse rounded-full bg-brand" />{a.trace?.llm?.replace(/^ollama:/, "")} {waiting > 0 && `${Math.round(waiting)} s`}
+          </span>
+        )}
         {a.trace?.intent && <span>{a.trace.intent}</span>}
         {a.trace?.matches?.map((m) => <Chip key={m}>{m}</Chip>)}
         {a.trace?.cached && <Chip>answered from memory</Chip>}
@@ -207,9 +231,11 @@ function AnswerBubble({ a, animate }: { a: Answer; animate: boolean }) {
 
 /** Who wrote the query that ran: the chosen LLM, or the grounded parser (alone, or because the LLM failed or was slow). */
 function answeredBy(a: Answer): string {
+  const short = (t: string) => t.replace(/^ollama:/, "");
   const ok = a.attempts.find((t) => t.ok);
-  const llm = a.attempts.find((t) => t.translator !== "grounded-parser")?.translator.replace(/^ollama:/, "");
-  if (ok && ok.translator !== "grounded-parser") return `via ${ok.translator.replace(/^ollama:/, "")}`;
-  if (llm) return `${llm} missed → grounded parser`;
+  if (ok && ok.translator !== "grounded-parser") return `via ${short(ok.translator)}`;
+  const llm = a.trace?.llm ?? a.attempts.find((t) => t.translator !== "grounded-parser")?.translator;
+  if (llm && a.trace?.llm_result === "timeout") return `${short(llm)} timed out → grounded parser`;
+  if (llm && (a.trace?.llm_result === "invalid" || a.status === "fallback")) return `${short(llm)} invalid → grounded parser`;
   return "via grounded parser";
 }
