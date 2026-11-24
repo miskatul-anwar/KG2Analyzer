@@ -68,6 +68,9 @@ class NLInterface:
         self.translator = translator or self.parser
         self.validator = Validator(cat, node_exists=self._node_exists)
         self._answers: dict[str, Answer] = {}
+        import os
+
+        self.budget = float(os.environ.get("KG2A_LLM_BUDGET", "30"))  # seconds the LLM gets before the parser answers
 
     def _node_exists(self, iri: str) -> bool:
         from rdflib import URIRef
@@ -106,22 +109,47 @@ class NLInterface:
             self._answers[key] = copy.deepcopy(ans)
         return ans
 
+    def _llm_attempts(self, question: str) -> list[Attempt]:
+        out, feedback = [], ""
+        for _ in range(self.k_max):
+            a = self._attempt(self.translator, question, compose_prompt(question, self.cat, feedback))
+            out.append(a)
+            if a.ok:
+                break
+            feedback = "\n".join(f"- {c.rule}: {c.message}" for c in a.checks if not c.ok)
+        return out
+
     def _ask(self, question: str) -> Answer:
         t0 = time.perf_counter()
         ans = Answer(question, "rejected")
-        feedback = ""
-        for _ in range(self.k_max if self.translator is not self.parser else 1):
-            a = self._attempt(self.translator, question, compose_prompt(question, self.cat, feedback))
-            ans.attempts.append(a)
-            if a.ok:
-                ans.status, ans.sparql = "executed", a.sparql
-                break
-            feedback = "\n".join(f"- {c.rule}: {c.message}" for c in a.checks if not c.ok)
-        if not ans.sparql and self.translator is not self.parser:
+        if self.translator is self.parser:
             a = self._attempt(self.parser, question, "")
             ans.attempts.append(a)
             if a.ok:
-                ans.status, ans.sparql = "fallback", a.sparql
+                ans.status, ans.sparql = "executed", a.sparql
+        else:
+            # The LLM drafts (with error-fed retries) in a worker; meanwhile the grounded parser answers in
+            # milliseconds. If the LLM has no valid query within the time budget, the parser's answer is used.
+            from concurrent.futures import ThreadPoolExecutor
+            from concurrent.futures import TimeoutError as Late
+
+            pool = ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(self._llm_attempts, question)
+            parsed = self._attempt(self.parser, question, "")
+            try:
+                drafts = future.result(timeout=self.budget)
+            except Late:
+                drafts = [Attempt(self.translator.name, "", "", [Check(
+                    "syntax", False, f"no answer within {self.budget:g} s (KG2A_LLM_BUDGET); the grounded parser answered")])]
+            pool.shutdown(wait=False)
+            ans.attempts += drafts
+            good = next((a for a in drafts if a.ok), None)
+            if good:
+                ans.status, ans.sparql = "executed", good.sparql
+            else:
+                ans.attempts.append(parsed)
+                if parsed.ok:
+                    ans.status, ans.sparql = "fallback", parsed.sparql
         if self.parser.last_trace.cubes or self.parser.last_trace.intent:
             ans.trace = asdict(self.parser.last_trace)
         if not ans.sparql:

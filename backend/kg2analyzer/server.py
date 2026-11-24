@@ -301,6 +301,14 @@ def suggestions(a: KG2Analyzer = W):
     return guarded(a, lambda: ok({"questions": a.suggest_questions()}))
 
 
+@app.get("/api/llm/models")
+def llm_models(a: KG2Analyzer = W):
+    """The Ollama server Ask talks to, whether it answers, and the models installed there."""
+    from kg2analyzer.nl.translators import ollama_models
+
+    return ok({**ollama_models(), "current": a.nl.translator.name})
+
+
 class TranslatorReq(BaseModel):
     spec: str  # rules | auto | ollama[:model] | openai
 

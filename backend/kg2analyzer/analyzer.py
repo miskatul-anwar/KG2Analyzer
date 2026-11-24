@@ -547,9 +547,24 @@ class KG2Analyzer:
         return self._nl
 
     def set_translator(self, spec: Translator | str | None) -> str:
+        """``rules`` (grounded parser only), ``auto`` (Ollama's default model if installed), ``ollama:<model>``
+        (that Ollama model, loaded in the background now), ``openai``, or a Translator."""
+        import threading
+
+        if isinstance(spec, str) and spec.startswith("ollama:"):
+            from kg2analyzer.nl.translators import OllamaTranslator, ollama_models
+
+            info, model = ollama_models(), spec.split(":", 1)[1]
+            if not info["reachable"]:
+                raise ValueError(f"Ollama is not running at {info['server']}: start it with `ollama serve`.")
+            if not OllamaTranslator(model).available():
+                raise ValueError(f"{model} is not installed in Ollama: run `ollama pull {model}`.")
         self._translator_spec = spec
         self._nl = None
-        return self.nl.translator.name
+        t = self.nl.translator
+        if hasattr(t, "warm"):
+            threading.Thread(target=t.warm, name="llm-warm", daemon=True).start()
+        return t.name
 
     def ask(self, question: str) -> Answer:
         return self.nl.ask(question)

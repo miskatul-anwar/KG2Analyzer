@@ -46,23 +46,61 @@ def compose_prompt(question: str, cat: Catalog, feedback: str = "") -> str:
     return p + "Generate ONLY executable SPARQL code enclosed in ```sparql ... ```."
 
 
+def ollama_url() -> str:
+    return os.environ.get("KG2A_OLLAMA_URL", "http://localhost:11434").rstrip("/")
+
+
+def ollama_models(url: str | None = None) -> dict:
+    """The models installed in Ollama (``/api/tags``), with size and parameters, and which are loaded (``/api/ps``)."""
+    url = (url or ollama_url()).rstrip("/")
+    try:
+        r = httpx.get(url + "/api/tags", timeout=3)
+        r.raise_for_status()
+        tags = r.json().get("models", [])
+    except Exception as e:  # noqa: BLE001
+        return {"server": url, "reachable": False, "models": [], "error": f"{type(e).__name__}: {e}"[:200]}
+    try:
+        loaded = {m.get("name") for m in httpx.get(url + "/api/ps", timeout=2).json().get("models", [])}
+    except Exception:  # noqa: BLE001
+        loaded = set()
+    models = []
+    for m in sorted(tags, key=lambda m: m.get("name", "")):
+        d = m.get("details") or {}
+        models.append({"name": m.get("name"), "size_gb": round((m.get("size") or 0) / 1e9, 2),
+                       "parameters": d.get("parameter_size"), "family": d.get("family"),
+                       "quantization": d.get("quantization_level"), "loaded": m.get("name") in loaded})
+    return {"server": url, "reachable": True, "models": models, "error": None}
+
+
 class OllamaTranslator:
-    def __init__(self, model: str | None = None, url: str | None = None, timeout: float = 120):
+    """A local LLM through Ollama. Kept loaded between questions (``keep_alive``), deterministic, with the
+    output capped: the stable schema prefix of every prompt lets Ollama reuse its cache across questions."""
+
+    def __init__(self, model: str | None = None, url: str | None = None, timeout: float | None = None):
         self.model = model or os.environ.get("KG2A_OLLAMA_MODEL", "qwen2.5-coder:3b")
-        self.url = (url or os.environ.get("KG2A_OLLAMA_URL", "http://localhost:11434")).rstrip("/")
-        self.timeout = timeout
+        self.url = (url or ollama_url()).rstrip("/")
+        self.timeout = timeout or float(os.environ.get("KG2A_LLM_TIMEOUT", "120"))
+        self.keep_alive = os.environ.get("KG2A_OLLAMA_KEEP_ALIVE", "30m")
         self.name = f"ollama:{self.model}"
 
     def available(self) -> bool:
+        info = ollama_models(self.url)
+        return info["reachable"] and any(m["name"] == self.model or m["name"].startswith(self.model + ":")
+                                         or m["name"].split(":")[0] == self.model for m in info["models"])
+
+    def warm(self) -> None:
+        """Load the model now (an empty prompt only loads it), so the first question does not wait for it."""
         try:
-            r = httpx.get(self.url + "/api/tags", timeout=2)
-            return r.status_code == 200 and any(m.get("name", "").startswith(self.model) for m in r.json().get("models", []))
-        except Exception:  # noqa: BLE001
-            return False
+            httpx.post(self.url + "/api/generate", timeout=self.timeout,
+                       json={"model": self.model, "prompt": "", "keep_alive": self.keep_alive})
+        except Exception:  # noqa: BLE001 - the question itself will report a real problem
+            pass
 
     def translate(self, question: str, prompt: str) -> str:
         r = httpx.post(self.url + "/api/generate", timeout=self.timeout, json={
-            "model": self.model, "prompt": prompt, "stream": False, "options": {"temperature": 0}})
+            "model": self.model, "prompt": prompt, "stream": False, "keep_alive": self.keep_alive,
+            "options": {"temperature": 0, "num_predict": int(os.environ.get("KG2A_LLM_MAX_TOKENS", "512")),
+                        "num_ctx": int(os.environ.get("KG2A_LLM_NUM_CTX", "8192"))}})
         r.raise_for_status()
         return r.json().get("response", "")
 
@@ -91,8 +129,9 @@ def llm_available() -> dict:
     import time
 
     if _LLM_CHECK["value"] is None or time.time() - _LLM_CHECK["at"] > 20:
-        o = OllamaTranslator()
-        _LLM_CHECK.update(at=time.time(), value={"server": o.url, "model": o.model, "reachable": o.available()})
+        info = ollama_models()
+        _LLM_CHECK.update(at=time.time(), value={"server": info["server"], "model": OllamaTranslator().model,
+                                                 "reachable": info["reachable"], "models": len(info["models"])})
     return _LLM_CHECK["value"]
 
 

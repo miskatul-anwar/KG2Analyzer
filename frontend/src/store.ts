@@ -46,6 +46,9 @@ interface UiState {
   /** Ask: try the LLM first (true) or only the grounded parser with embeddings (false). */
   useLlm: boolean;
   setUseLlm: (v: boolean) => void;
+  /** Ask: the Ollama model the user picked (null = pick a sensible installed one). */
+  llmModel: string | null;
+  setLlmModel: (m: string) => void;
 }
 
 const safeStorage = createJSONStorage(() => {
@@ -81,7 +84,9 @@ export const useUi = create<UiState>()(
       setUseTev1: (useTev1) => set({ useTev1 }),
       useLlm: false,
       setUseLlm: (useLlm) => set({ useLlm }),
-      resetAll: () => set({ query: EMPTY_QUERY, queryTab: "builder", sparql: DEFAULT_SPARQL, openKg: "", chat: [], useTev1: null, useLlm: false }),
+      llmModel: null,
+      setLlmModel: (llmModel) => set({ llmModel }),
+      resetAll: () => set({ query: EMPTY_QUERY, queryTab: "builder", sparql: DEFAULT_SPARQL, openKg: "", chat: [], useTev1: null, useLlm: false, llmModel: null }),
     }),
     { name: "kg2analyzer-ui", version: 1, storage: safeStorage },
   ),

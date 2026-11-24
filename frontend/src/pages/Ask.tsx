@@ -2,15 +2,14 @@ import { useMutation } from "@tanstack/react-query";
 import clsx from "clsx";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
-import { PiSparkleDuotone } from "react-icons/pi";
-import { TbArrowUp, TbCircleCheck, TbCircleX, TbShieldX, TbTrash } from "react-icons/tb";
+import { TbArrowUp, TbCircleCheck, TbCircleX, TbRefresh, TbShieldX, TbTrash } from "react-icons/tb";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, type Answer } from "@/api/client";
-import { useRefreshStore, useStatus, useSuggestions } from "@/api/hooks";
+import { useLlmModels, useRefreshStore, useStatus } from "@/api/hooks";
 import { MdkgLoader } from "@/components/MdkgLoader";
 import { DotBackdrop, TextGenerate } from "@/components/fx";
-import { Chip, Code, ErrorBox, RowsTable } from "@/components/kit";
+import { Chip, Code, ErrorBox, GroupSelect, RowsTable, Spinner } from "@/components/kit";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip as Tip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -18,13 +17,89 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtNum, localName, SERIES } from "@/lib/format";
 import { useUi } from "@/store";
-import { toast } from "sonner";
 
 export default function AskPage() {
   return (
     <MdkgLoader ws="ask" title="Load MDKGs to ask about">
       <AskBody />
     </MdkgLoader>
+  );
+}
+
+/** LLM on/off and the choice of model among those installed in Ollama. Off: grounded parser + embeddings. */
+function LlmPicker() {
+  const { data: st } = useStatus("ask");
+  const useLlm = useUi((s) => s.useLlm);
+  const setUseLlm = useUi((s) => s.setUseLlm);
+  const model = useUi((s) => s.llmModel);
+  const setModel = useUi((s) => s.setLlmModel);
+  const refresh = useRefreshStore("ask");
+  const { data: ol, isFetching, refetch } = useLlmModels(useLlm);
+  const tr = useMutation({ mutationFn: api.setTranslator, onSuccess: () => void refresh() });
+  const installed = ol?.models ?? [];
+  const chosen = model && installed.some((m) => m.name === model) ? model : null;
+  // nothing picked yet: a coder model if there is one, else whatever is already loaded, else the first
+  useEffect(() => {
+    if (useLlm && !chosen && installed.length) {
+      setModel((installed.find((m) => /coder/i.test(m.name)) ?? installed.find((m) => m.loaded) ?? installed[0]).name);
+    }
+  }, [useLlm, chosen, installed, setModel]);
+  // keep the server's translator in line with the choice (the server forgets it when restarted)
+  const want = useLlm && ol?.reachable && chosen ? `ollama:${chosen}` : "rules";
+  const have = st?.translator === "grounded-parser" ? "rules" : st?.translator;
+  useEffect(() => {
+    if (st && !tr.isPending && have !== want) tr.mutate(want);
+  }, [want, have]); // eslint-disable-line react-hooks/exhaustive-deps
+  const live = have !== "rules";
+
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card/80 px-3 py-2 text-sm backdrop-blur">
+      <div className="flex items-center gap-2">
+        <Switch id="llm" checked={useLlm} onCheckedChange={setUseLlm} disabled={tr.isPending} />
+        <Label htmlFor="llm" className="font-medium">LLM</Label>
+      </div>
+      {!useLlm ? (
+        <span className="text-xs text-ink-3">
+          off: the grounded parser answers instantly, matching your words exactly, by meaning
+          ({st?.embeddings.startsWith("model2vec") ? "embeddings" : "embeddings offline"}) and by spelling
+        </span>
+      ) : !ol ? (
+        <Spinner label="looking for Ollama…" />
+      ) : !ol.reachable ? (
+        <span className="text-xs text-warn">
+          Ollama isn't running at <span className="mono">{ol.server}</span>. Start it with <span className="mono">ollama serve</span>, then
+          <button className="ml-1 underline" onClick={() => void refetch()}>check again</button>. Meanwhile the grounded parser answers.
+        </span>
+      ) : !installed.length ? (
+        <span className="text-xs text-warn">
+          No models installed in Ollama. Get one with <span className="mono">ollama pull qwen2.5-coder:3b</span>, then
+          <button className="ml-1 underline" onClick={() => void refetch()}>check again</button>.
+        </span>
+      ) : (
+        <>
+          <div className="w-80 max-w-full">
+            <GroupSelect value={chosen ?? ""} onChange={(v) => v && setModel(v)} placeholder="Choose a model…" options={installed.map((m) => ({
+              value: m.name,
+              label: <span className="flex items-center gap-1.5">
+                <span className="font-medium">{m.name}</span>
+                <span className="text-xs text-ink-3">{[m.parameters, `${m.size_gb} GB`, m.quantization].filter(Boolean).join(" · ")}</span>
+                {m.loaded && <span className="size-1.5 rounded-full bg-good" title="loaded in memory" />}
+              </span>,
+            }))} />
+          </div>
+          <Tip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={() => void refetch()} aria-label="Refresh the model list"><TbRefresh className={clsx(isFetching && "animate-spin")} /></Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh the list of models installed in Ollama</TooltipContent>
+          </Tip>
+          <span className="text-xs text-ink-3">
+            {tr.isPending ? "loading the model…" : live ? <>writes the SPARQL; checked by the validator; the grounded parser answers if it is slow or wrong</> : null}
+          </span>
+        </>
+      )}
+      {tr.error && <span className="w-full text-xs text-bad">{String((tr.error as Error).message)}</span>}
+    </div>
   );
 }
 
@@ -35,32 +110,15 @@ function AskBody() {
   const [q, setQ] = useState("");
   const [fresh, setFresh] = useState<number>(-1);
   const { data: st } = useStatus("ask");
-  const { data: sug } = useSuggestions();
-  const refresh = useRefreshStore("ask");
   const end = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const nav = useNavigate();
-  const examples = sug?.questions ?? [];
 
   const ask = useMutation({
     mutationFn: api.ask,
     onSuccess: (a) => { push(a); setFresh(useUi.getState().chat.length - 1); setQ(""); },
   });
-  const useLlm = useUi((s) => s.useLlm);
-  const setUseLlm = useUi((s) => s.setUseLlm);
-  const tr = useMutation({ mutationFn: api.setTranslator, onSuccess: () => void refresh() });
-  const parserOnly = st?.translator === "grounded-parser";
-  const llmReachable = st?.llm.reachable ?? false;
-  // keep the server's translator in line with the switch (the server forgets it when restarted)
-  useEffect(() => {
-    if (!st || tr.isPending) return;
-    if (useLlm && parserOnly && llmReachable) tr.mutate("auto");
-    if (!useLlm && !parserOnly) tr.mutate("rules");
-  }, [useLlm, st?.translator, llmReachable]); // eslint-disable-line react-hooks/exhaustive-deps
-  const toggleLlm = (on: boolean) => {
-    setUseLlm(on);
-    if (on && !llmReachable) toast.warning(`No LLM server at ${st?.llm.server ?? "localhost:11434"} with ${st?.llm.model ?? "the model"}; answering with embeddings until one is running.`);
-  };
+  const usingLlm = !!st && st.translator !== "grounded-parser";
   const submit = (text: string) => { const t = text.trim(); if (t && !ask.isPending) ask.mutate(t); };
 
   // A question handed over from the ⌘K palette.
@@ -78,38 +136,12 @@ function AskBody() {
           <h1 className="text-2xl font-semibold tracking-tight">Ask your MDKGs</h1>
           <p className="mt-1 text-sm text-ink-2">Plain-language questions become validated SPARQL. Nothing runs unless it passes syntax, grounding, scope and safety checks.</p>
         </div>
-        <div className="flex items-end gap-2">
-          <Tip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm">
-                <Switch id="llm" checked={useLlm} onCheckedChange={toggleLlm} disabled={tr.isPending} />
-                <Label htmlFor="llm">LLM</Label>
-                <span className="text-xs text-ink-3">
-                  {!st ? "…" : !parserOnly ? st.translator.replace(/^ollama:/, "") : useLlm && !llmReachable ? "no server · embeddings" : "off · embeddings"}
-                </span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs">
-              {!parserOnly
-                ? `The LLM (${st?.translator}) writes the SPARQL; the validator checks it, and the grounded parser answers if it fails.`
-                : <>The grounded parser answers: question words are matched to the MDKG vocabulary exactly, by meaning
-                  ({st?.embeddings.startsWith("model2vec") ? "potion-base-8M embeddings" : "embedding model offline"}) and by spelling (character n-grams).
-                  {useLlm && !llmReachable && <> No LLM server answers at {st?.llm.server} with {st?.llm.model}.</>}</>}
-            </TooltipContent>
-          </Tip>
-          {chat.length > 0 && <Button variant="outline" onClick={clear}><TbTrash />Clear</Button>}
-        </div>
+        {chat.length > 0 && <Button variant="outline" onClick={clear}><TbTrash />Clear</Button>}
       </div>
-      <ErrorBox error={tr.error} />
+      <LlmPicker />
 
         <>
           <div className="flex flex-col gap-4 pb-4">
-            {chat.length === 0 && !ask.isPending && (
-              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-border bg-card/80 p-6 text-center backdrop-blur">
-                <PiSparkleDuotone className="mx-auto size-8 text-brand" />
-                <div className="mt-2 font-medium">Try one of these. They are built from your own MDKGs and all have answers.</div>
-              </motion.div>
-            )}
             <AnimatePresence initial={false}>
               {chat.map((a, i) => (
                 <motion.div key={`${i}-${a.question}`} layout initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.25 }}
@@ -126,7 +158,7 @@ function AskBody() {
                   <span className="flex gap-1">{[0, 1, 2].map((d) => (
                     <motion.i key={d} className="size-1.5 rounded-full bg-brand" animate={{ opacity: [0.2, 1, 0.2] }} transition={{ duration: 1, repeat: Infinity, delay: d * 0.15 }} />
                   ))}</span>
-                  translating · validating · executing
+                  {usingLlm ? <>asking {st!.translator.replace(/^ollama:/, "")} · validating · the grounded parser stands by</> : "matching your words to the MDKGs · validating · executing"}
                 </div>
               </motion.div>
             )}
@@ -135,19 +167,11 @@ function AskBody() {
           </div>
 
           <div className="sticky bottom-0 -mx-4 border-t border-border/60 bg-background/90 px-4 pb-4 pt-3 backdrop-blur-xl">
-            {examples.length > 0 && (
-              <div className={clsx("mb-2 flex gap-1.5", chat.length ? "overflow-x-auto pb-1 [scrollbar-width:thin]" : "flex-wrap")}>
-                {examples.map((e) => (
-                  <button key={e} className={clsx("rounded-full border border-border bg-card px-3 py-1 text-left text-xs text-ink-2 transition hover:border-brand hover:text-ink",
-                    chat.length ? "shrink-0 whitespace-nowrap" : "max-w-full")} onClick={() => submit(e)}>{e}</button>
-                ))}
-              </div>
-            )}
             <form className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-lg shadow-black/5 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20"
               onSubmit={(e) => { e.preventDefault(); submit(q); }}>
               <Textarea value={q} onChange={(e) => setQ(e.target.value)} rows={1} autoFocus
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(q); } }}
-                placeholder={examples[0] ? `e.g. ${examples[0]}` : "Ask about your MDKGs…"}
+                placeholder="Ask a question about your MDKGs…"
                 className="max-h-40 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0" />
               <Button type="submit" size="icon" className="size-10 shrink-0 rounded-xl" disabled={!q.trim() || ask.isPending} aria-label="Ask"><TbArrowUp className="size-5" /></Button>
             </form>
@@ -170,6 +194,7 @@ function AnswerBubble({ a, animate }: { a: Answer; animate: boolean }) {
       ok ? (a.status === "fallback" ? "border-warn/40" : "border-border") : "border-bad/40")}>
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-3">
         <Chip tone={a.status === "executed" ? "good" : a.status === "fallback" ? "warn" : "bad"}>{a.status}</Chip>
+        <Chip tone={a.status === "fallback" ? "warn" : undefined}>{answeredBy(a)}</Chip>
         {a.trace?.intent && <span>{a.trace.intent}</span>}
         {a.trace?.matches?.map((m) => <Chip key={m} title="matched by the embedding / spelling matcher">{m}</Chip>)}
         {a.trace?.cached && <Chip>answered from memory</Chip>}
@@ -209,4 +234,13 @@ function AnswerBubble({ a, animate }: { a: Answer; animate: boolean }) {
       </div>
     </div>
   );
+}
+
+/** Who wrote the query that ran: the chosen LLM, or the grounded parser (alone, or because the LLM failed or was slow). */
+function answeredBy(a: Answer): string {
+  const ok = a.attempts.find((t) => t.ok);
+  const llm = a.attempts.find((t) => t.translator !== "grounded-parser")?.translator.replace(/^ollama:/, "");
+  if (ok && ok.translator !== "grounded-parser") return `via ${ok.translator.replace(/^ollama:/, "")}`;
+  if (llm) return `${llm} missed → grounded parser`;
+  return "via grounded parser";
 }

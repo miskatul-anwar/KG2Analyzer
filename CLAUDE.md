@@ -10,6 +10,7 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
   - The built-in engine `kg2md/` (`run_kg2md`: profiling + Otsu, measures + SHAP/LIME, ADW4 hierarchies) stays for the thesis-table tests (`load_kg`, `engine="builtin"`).
   - Phase II `store.py`, `catalog.py`, `planner.py`, `olap.py`; graph analytics `graphml.py`, `linking.py`
   - Phase III `nl/` (validator, translators, interface; `semantic.py` is the embedding/spelling matcher the grounded parser falls back to when exact words miss)
+- Ask's LLM: `GET /api/llm/models` lists Ollama's installed models (`KG2A_OLLAMA_URL`); `POST /api/translator {"spec": "ollama:<model>"}` selects and preloads one. The LLM drafts in a worker while the grounded parser answers; after `KG2A_LLM_BUDGET` s the parser's answer is used. Tests use a fake Ollama HTTP server (`tests/test_ask_llm.py`).
 - Speed for demos: Tev1 answers are cached on disk (`CachedDecider`, `KG2A_CACHE_DIR`), Tev1 and the embedding model preload at server start (`KG2A_PRELOAD=0` disables), and `NLInterface` remembers answers until the MDKGs or translator change.
 - Tev1 needs `uv sync --extra tev1`. With Tev1 off, `kg2md/ml_decider.py` answers (trained classifiers in `models/decider.joblib`, corpus in `kg2md/decider_corpus.py`, retrain with `kg2analyzer train-decider`); `structural` (simple rules) remains for comparison. Tests set `KG2A_DECIDER=ml` (tests/conftest.py); `tests/test_tev1.py` runs real Tev1 with `KG2A_TEST_TEV1=1`. Never present ML or rule results as Tev1.
 - `models/*.joblib` are the built-in engine's measure classifiers; `kg2md/features.py` must stay compatible with how they were trained (keep its tag join sorted: unsorted set order made results depend on the hash seed).
@@ -44,7 +45,7 @@ Python is managed with **uv** (never pip): add dependencies with `uv add <pkg>` 
 - Test only at the agreed seams (the `KG2Analyzer` incl. `ingest`, `run_kg2md`, `otsu_threshold` and HTTP interfaces). Expected values come from the thesis, never recomputed by the code under test.
 - Use `GLOSSARY.md` terms in code, UI copy, tests and issues.
 - The store is read-only to every query path; never add an update route.
-- The app ships no sample or placeholder KGs: benchmark KGs are test fixtures only (`backend/tests/fixtures/`), and UI defaults and example questions come from the loaded catalogue (`/api/suggestions`).
+- The app ships no sample or placeholder KGs: benchmark KGs are test fixtures only (`backend/tests/fixtures/`), and UI defaults come from the loaded catalogue. The UI shows no example questions (keep Ask and ⌘K clean); `/api/suggestions` stays API-only.
 - Build paths with `fileURLToPath` / `pathlib`, never `URL.pathname`: the app must run on Windows.
 
 ## Agent skills

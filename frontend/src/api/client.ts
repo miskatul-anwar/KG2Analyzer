@@ -124,6 +124,9 @@ export interface Overview { kgs: OverviewKg[]; remote: string[]; identity: { lin
 export interface Member { iri: string; label: string }
 export interface JoinOption { left_dim: string; right_dim: string; link: "identity" | "shared"; aligned: number; label: string }
 
+export interface LlmModel { name: string; size_gb: number; parameters: string | null; family: string | null; quantization: string | null; loaded: boolean }
+export interface LlmModels { server: string; reachable: boolean; models: LlmModel[]; error: string | null; current: string }
+
 export class ApiError extends Error {}
 
 /** The three sections are independent backend workspaces. */
@@ -189,4 +192,6 @@ export const api = {
   ask: (question: string) => post<Answer>("ask", "/api/ask", { question }),
   suggestions: () => get<{ questions: string[] }>("ask", "/api/suggestions"),
   setTranslator: (spec: string) => post<{ translator: string }>("ask", "/api/translator", { spec }),
+  /** The models installed in the Ollama server Ask uses. */
+  llmModels: () => get<LlmModels>("ask", "/api/llm/models"),
 };

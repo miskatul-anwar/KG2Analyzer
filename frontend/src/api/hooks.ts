@@ -13,7 +13,8 @@ export const useCatalog = (ws: Ws) =>
   useQuery({ queryKey: [ws, "catalog"], queryFn: () => api.catalog(ws).then((c) => { registerNames(c); return c; }), ...forever });
 export const useMdkgs = (ws: Ws) => useQuery({ queryKey: [ws, "mdkgs"], queryFn: () => api.mdkgs(ws), ...forever });
 export const useOverview = () => useQuery({ queryKey: ["build", "overview"], queryFn: api.overview, ...forever });
-export const useSuggestions = () => useQuery({ queryKey: ["ask", "suggestions"], queryFn: api.suggestions, ...forever });
+export const useLlmModels = (enabled: boolean) =>
+  useQuery({ queryKey: ["ask", "llm-models"], queryFn: api.llmModels, enabled, staleTime: 15_000, refetchOnWindowFocus: true });
 export const useMembers = (kg: string, dim: string, level: string | null) =>
   useQuery({ queryKey: ["query", "members", kg, dim, level], queryFn: () => api.members(kg, dim, level), enabled: !!(kg && dim), ...forever });
 export const useJoins = (a: string, b: string) =>

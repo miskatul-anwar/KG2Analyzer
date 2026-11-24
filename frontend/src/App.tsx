@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, type Ws } from "@/api/client";
-import { useCatalog, useStatus, useSuggestions } from "@/api/hooks";
+import { useCatalog, useStatus } from "@/api/hooks";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Page } from "@/components/fx";
 import { Spinner } from "@/components/kit";
@@ -172,17 +172,16 @@ function ResetAll() {
   );
 }
 
-/** ⌘K: jump to a step, open a measure in the query builder, or ask a suggested question. */
+/** ⌘K: jump to a step or open a measure in the query builder. */
 function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const nav = useNavigate();
   const { data: cat } = useCatalog("query");
-  const { data: sug } = useSuggestions();
   const setQuery = useUi((s) => s.setQuery);
   const go = (fn: () => void) => { fn(); onOpenChange(false); };
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="Jump to" description="Steps, measures and questions">
+    <CommandDialog open={open} onOpenChange={onOpenChange} title="Jump to" description="Steps and measures">
       <Command>
-      <CommandInput placeholder="Search steps, measures, questions…" />
+      <CommandInput placeholder="Search steps and measures…" />
       <CommandList>
         <CommandEmpty>Nothing found.</CommandEmpty>
         <CommandGroup heading="Steps">
@@ -205,16 +204,7 @@ function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (
             </CommandGroup>
           </>
         )}
-        {!!sug?.questions.length && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Ask">
-              {sug.questions.map((q) => (
-                <CommandItem key={q} onSelect={() => go(() => nav("/ask", { state: { ask: q } }))}><TbMessageChatbot />{q}</CommandItem>
-              ))}
-            </CommandGroup>
-          </>
-        )}
+
       </CommandList>
       </Command>
     </CommandDialog>
