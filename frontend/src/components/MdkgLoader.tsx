@@ -2,13 +2,12 @@ import { useMutation } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
 import { PiCubeFocusDuotone, PiFolderOpenDuotone } from "react-icons/pi";
-import { TbArrowBarToRight, TbLink, TbPlus, TbTrash, TbX } from "react-icons/tb";
-import { Link } from "react-router-dom";
+import { TbArrowBarToRight, TbFile, TbFolderOpen, TbLink, TbTrash, TbX } from "react-icons/tb";
 import { toast } from "sonner";
 import { api, type Ws } from "@/api/client";
 import { useMdkgs, useOverview, useRefreshStore } from "@/api/hooks";
 import { DotBackdrop, ShimmerButton, Spotlight } from "@/components/fx";
-import { ErrorBox, LoadingBlock } from "@/components/kit";
+import { ErrorBox, IconAction, LoadingBlock } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -21,7 +20,7 @@ const relPath = (f: File) => (f as File & { webkitRelativePath?: string }).webki
  * Loads MDKG files saved from step 1 into one section's own workspace (Query or Ask) and shows what is loaded.
  * Renders `children` only once at least one MDKG is loaded.
  */
-export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; title: string; children: ReactNode }) {
+export function MdkgLoader({ ws, children }: { ws: Exclude<Ws, "build">; children: ReactNode }) {
   const { data, isLoading } = useMdkgs(ws);
   const refresh = useRefreshStore(ws);
   const input = useRef<HTMLInputElement>(null);
@@ -71,41 +70,31 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
       <div className="relative isolate mx-auto max-w-3xl pt-4">
         <DotBackdrop />
         <Spotlight className="left-1/2 top-0 h-72 w-[32rem] -translate-x-1/2" />
-        <h1 className="text-center text-3xl font-semibold tracking-tight">{title}</h1>
         {builtKgs.length > 0 && (
           <div className="mt-5 flex flex-col items-center gap-2">
             <ShimmerButton disabled={fromBuild.isPending} onClick={() => fromBuild.mutate()}>
               <TbArrowBarToRight className="size-4" />
-              {fromBuild.isPending ? "Loading…" : `Use the ${builtKgs.length} MDKG${builtKgs.length === 1 ? "" : "s"} built in step 1`}
+              {fromBuild.isPending ? "Loading…" : `Use ${builtKgs.join(", ")}`}
             </ShimmerButton>
-            <span className="text-xs text-ink-3">{builtKgs.join(", ")} · or load saved MDKG files below</span>
             <ErrorBox error={fromBuild.error} />
           </div>
         )}
-        <p className="mx-auto mt-2 max-w-xl text-center text-ink-2">
-          Load the MDKGs you want to work with: the folders you saved in step 1 (one per KG, as KG2MD writes them:
-          <span className="mono"> fact_classes/&lt;cube&gt;/mdkg_dataset.nq</span>), or the whole <span className="mono">mdkg.zip</span>,
-          plus <span className="mono">identity.ttl</span> if you saved it.
-        </p>
         <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}
           onClick={() => input.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && input.current?.click()}
           className={clsx("mt-6 flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed bg-card/80 px-4 py-14 text-center backdrop-blur transition",
             drag ? "border-brand bg-brand/5" : "border-border hover:border-brand/60")}>
           <PiFolderOpenDuotone className="size-12 text-brand" />
-          <div className="text-lg font-semibold">Drop MDKG files here</div>
-          <div className="text-xs text-ink-3">MDKG folders · mdkg_dataset.nq · mdkg_schema.ttl + mdkg_data.ttl · .zip · identity.ttl</div>
           <div className="mt-2 flex flex-wrap justify-center gap-2">
             <ShimmerButton disabled={load.isPending} onClick={(e) => { e.stopPropagation(); folder.current?.click(); }}>
-              {load.isPending ? "Loading…" : "Choose a folder"}
+              {load.isPending ? "Loading…" : "Folder"}
             </ShimmerButton>
-            <Button variant="outline" disabled={load.isPending} onClick={(e) => { e.stopPropagation(); input.current?.click(); }}>Choose files</Button>
+            <Button variant="outline" disabled={load.isPending} onClick={(e) => { e.stopPropagation(); input.current?.click(); }}>Files</Button>
           </div>
           {fileInput}
         </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-ink-2">
-          <div className="flex items-center gap-2"><Switch id={`al-${ws}`} checked={autoLink} onCheckedChange={setAutoLink} />
-            <Label htmlFor={`al-${ws}`}>Link shared entities automatically when no identity file is loaded</Label></div>
-          <Link to="/build" className="text-brand hover:underline">No MDKGs yet? Build them in step 1 →</Link>
+        <div className="mt-3 flex items-center gap-2 text-sm text-ink-2">
+          <Switch id={`al-${ws}`} checked={autoLink} onCheckedChange={setAutoLink} />
+          <Label htmlFor={`al-${ws}`}>Auto-link</Label>
         </div>
         <ErrorBox error={load.error} />
       </div>
@@ -117,7 +106,6 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
       <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}
         className={clsx("mb-5 flex flex-wrap items-center gap-2 rounded-2xl border bg-card px-3 py-2.5 shadow-xs transition",
           drag ? "border-brand bg-brand/5" : "border-border")}>
-        <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-ink-3">Loaded MDKGs</span>
         {mdkgs.map((m) => (
           <Tooltip key={m.kg}>
             <TooltipTrigger asChild>
@@ -135,17 +123,10 @@ export function MdkgLoader({ ws, title, children }: { ws: Exclude<Ws, "build">; 
         )}
         <div className="ml-auto flex items-center gap-1.5">
           {load.isPending && <span className="text-xs text-ink-3">loading…</span>}
-          {builtKgs.length > 0 && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" disabled={fromBuild.isPending} onClick={() => fromBuild.mutate()}><TbArrowBarToRight />From Build</Button>
-              </TooltipTrigger>
-              <TooltipContent>Replace these with the MDKGs currently built in step 1 ({builtKgs.join(", ")})</TooltipContent>
-            </Tooltip>
-          )}
-          <Button variant="outline" size="sm" onClick={() => folder.current?.click()}><TbPlus />Load folder</Button>
-          <Button variant="ghost" size="sm" onClick={() => input.current?.click()}>files</Button>
-          <Button variant="ghost" size="sm" onClick={() => clear.mutate()} className="text-ink-3 hover:text-bad"><TbTrash />Clear</Button>
+          {builtKgs.length > 0 && <IconAction label={`Use built MDKGs (${builtKgs.join(", ")})`} icon={<TbArrowBarToRight />} disabled={fromBuild.isPending} onClick={() => fromBuild.mutate()} />}
+          <IconAction label="Load a folder" icon={<TbFolderOpen />} onClick={() => folder.current?.click()} />
+          <IconAction label="Load files" icon={<TbFile />} onClick={() => input.current?.click()} />
+          <IconAction label="Unload all" icon={<TbTrash />} className="text-ink-3 hover:text-bad" onClick={() => clear.mutate()} />
           {fileInput}
         </div>
       </div>

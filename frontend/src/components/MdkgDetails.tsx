@@ -22,7 +22,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <Card title={`Fact classes · ${r.decider.includes("not Tev1") ? "ML classifiers" : "Tev1"} + Otsu`}
-        subtitle={<>Decided by <b>{r.decider}</b> in {r.seconds}s · {tau === null ? "no score split, the best class was taken" : <>τ* = <b>{tau.toFixed(4)}</b></>} · {r.classes.filter((c) => c.selected).length} of {r.classes.length} eligible classes become cubes{r.separated_records ? ` · ${r.separated_records} reused record IRIs separated` : ""}</>}>
+        subtitle={<>Decided by <b>{r.decider}</b> in {r.seconds}s · {tau === null ? "τ* —" : <>τ* = <b>{tau.toFixed(4)}</b></>} · {r.classes.filter((c) => c.selected).length} of {r.classes.length} eligible classes become cubes{r.separated_records ? ` · ${r.separated_records} reused record IRIs separated` : ""}</>}>
         <div className="h-72">
           <ResponsiveContainer>
             <ScatterChart margin={{ top: 10, right: 30, bottom: 60, left: 0 }}>
@@ -51,7 +51,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
           { key: "referenced_ratio", header: "referenced", render: (c) => pct(c.referenced_ratio) },
           { key: "probability", header: "P(fact)", numeric: true, decimals: 4 },
           { key: "selected", header: "status", render: (c) => c.selected ? <Chip tone="good">fact</Chip>
-            : c.excluded_by_guard ? <Chip tone="warn" title="Most instances are referenced by other instances, or it has no measure and no link">guarded</Chip> : <Chip>dimension</Chip> },
+            : c.excluded_by_guard ? <Chip tone="warn">guarded</Chip> : <Chip>dimension</Chip> },
         ]} />
       </Card>
 
@@ -63,7 +63,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
             <Kpi value={pct(c.audit.measure_fidelity)} label={`measure fidelity · ${c.audit.measure_cells_checked} cells`} tone={c.audit.measure_fidelity === 1 ? "good" : "bad"} />
             <Kpi value={`${c.audit.ghost_observations ?? "—"} / ${c.audit.dropped_facts ?? "—"}`} label="ghost / dropped" />
           </div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Measures · aggregate chosen by {who} (additivity follows)</h4>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Measures</h4>
           <DataTable rows={c.measures} columns={[
             { key: "name", header: "measure", render: (m) => <span className="font-medium">{m.name}</span> },
             { key: "aggregate", header: "aggregate", render: (m) => <span className="mono">qb4o:{m.aggregate}</span> },
@@ -74,7 +74,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
               : <span className="text-ink-3">{m.source ? "declared qb4o:aggregateFunction" : "synthetic count"}</span> },
             { key: "unit", header: "unit", render: (m) => (m.unit ? localName(m.unit) : "—") },
           ]} />
-          <h4 className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Dimensions · hierarchies from the hierarchy engine</h4>
+          <h4 className="mt-4 mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Dimensions</h4>
           <DataTable rows={c.dimensions} columns={[
             { key: "label", header: "dimension", render: (d) => <span className="font-medium">{d.label.replace(/ Dimension$/, "")}</span> },
             { key: "base_level", header: "base level", render: (d) => localName(d.base_level ?? "") },
@@ -87,7 +87,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
         </Card>
       ))}
 
-      <Card title={`Every decision · ${r.decider}`} subtitle="The multiple-choice questions KG2MD asked, with the answer and its probability. For the ML classifiers, “why” shows how much the name's meaning, its spelling, the context and the structure pushed the answer.">
+      <Card title={`Every decision · ${r.decider}`} >
         <DataTable rows={r.decisions} max={400} columns={[
           { key: "question", header: "question", render: (d) => QUESTION[d.question] },
           { key: "profile", header: "about", render: (d) => <span className="font-medium">{subject(d)}</span> },
@@ -99,7 +99,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
         ]} />
       </Card>
 
-      <Card title="Notebook log" subtitle="Everything the KG2MD cells printed (also saved as kg2md.log).">
+      <Card title="Notebook log" >
         <pre className="mono max-h-96 overflow-auto whitespace-pre text-[11px] leading-snug text-ink-2">{r.log}</pre>
       </Card>
     </div>

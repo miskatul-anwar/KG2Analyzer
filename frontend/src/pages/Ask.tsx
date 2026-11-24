@@ -9,10 +9,8 @@ import { api, type Answer } from "@/api/client";
 import { useLlmModels, useRefreshStore, useStatus } from "@/api/hooks";
 import { MdkgLoader } from "@/components/MdkgLoader";
 import { DotBackdrop, TextGenerate } from "@/components/fx";
-import { Chip, Code, ErrorBox, GroupSelect, RowsTable, Spinner } from "@/components/kit";
-import { Label } from "@/components/ui/label";
+import { Chip, Code, ErrorBox, GroupSelect, RowsTable } from "@/components/kit";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip as Tip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtNum, localName, SERIES } from "@/lib/format";
@@ -20,13 +18,13 @@ import { useUi } from "@/store";
 
 export default function AskPage() {
   return (
-    <MdkgLoader ws="ask" title="Load MDKGs to ask about">
+    <MdkgLoader ws="ask">
       <AskBody />
     </MdkgLoader>
   );
 }
 
-/** LLM on/off and the choice of model among those installed in Ollama. Off: grounded parser + embeddings. */
+/** LLM on/off and the model, chosen among those installed in Ollama. */
 function LlmPicker() {
   const { data: st } = useStatus("ask");
   const useLlm = useUi((s) => s.useLlm);
@@ -38,7 +36,6 @@ function LlmPicker() {
   const tr = useMutation({ mutationFn: api.setTranslator, onSuccess: () => void refresh() });
   const installed = ol?.models ?? [];
   const chosen = model && installed.some((m) => m.name === model) ? model : null;
-  // nothing picked yet: a coder model if there is one, else whatever is already loaded, else the first
   useEffect(() => {
     if (useLlm && !chosen && installed.length) {
       setModel((installed.find((m) => /coder/i.test(m.name)) ?? installed.find((m) => m.loaded) ?? installed[0]).name);
@@ -50,55 +47,29 @@ function LlmPicker() {
   useEffect(() => {
     if (st && !tr.isPending && have !== want) tr.mutate(want);
   }, [want, have]); // eslint-disable-line react-hooks/exhaustive-deps
-  const live = have !== "rules";
 
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card/80 px-3 py-2 text-sm backdrop-blur">
-      <div className="flex items-center gap-2">
-        <Switch id="llm" checked={useLlm} onCheckedChange={setUseLlm} disabled={tr.isPending} />
-        <Label htmlFor="llm" className="font-medium">LLM</Label>
-      </div>
-      {!useLlm ? (
-        <span className="text-xs text-ink-3">
-          off: the grounded parser answers instantly, matching your words exactly, by meaning
-          ({st?.embeddings.startsWith("model2vec") ? "embeddings" : "embeddings offline"}) and by spelling
-        </span>
-      ) : !ol ? (
-        <Spinner label="looking for Ollama…" />
-      ) : !ol.reachable ? (
-        <span className="text-xs text-warn">
-          Ollama isn't running at <span className="mono">{ol.server}</span>. Start it with <span className="mono">ollama serve</span>, then
-          <button className="ml-1 underline" onClick={() => void refetch()}>check again</button>. Meanwhile the grounded parser answers.
-        </span>
-      ) : !installed.length ? (
-        <span className="text-xs text-warn">
-          No models installed in Ollama. Get one with <span className="mono">ollama pull qwen2.5-coder:3b</span>, then
-          <button className="ml-1 underline" onClick={() => void refetch()}>check again</button>.
-        </span>
-      ) : (
-        <>
-          <div className="w-80 max-w-full">
-            <GroupSelect value={chosen ?? ""} onChange={(v) => v && setModel(v)} placeholder="Choose a model…" options={installed.map((m) => ({
+    <div className="flex items-center gap-1.5">
+      {useLlm && ol?.reachable && installed.length > 0 && (
+        <div className="w-56">
+          <GroupSelect value={chosen ?? ""} onChange={(v) => v && setModel(v)} placeholder="Model" className="h-8 rounded-full text-xs"
+            options={installed.map((m) => ({
               value: m.name,
-              label: <span className="flex items-center gap-1.5">
-                <span className="font-medium">{m.name}</span>
-                <span className="text-xs text-ink-3">{[m.parameters, `${m.size_gb} GB`, m.quantization].filter(Boolean).join(" · ")}</span>
-                {m.loaded && <span className="size-1.5 rounded-full bg-good" title="loaded in memory" />}
-              </span>,
+              label: <span className="flex items-center gap-1.5">{m.name}
+                <span className="text-ink-3">{m.parameters}</span>{m.loaded && <span className="size-1.5 rounded-full bg-good" />}</span>,
             }))} />
-          </div>
-          <Tip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={() => void refetch()} aria-label="Refresh the model list"><TbRefresh className={clsx(isFetching && "animate-spin")} /></Button>
-            </TooltipTrigger>
-            <TooltipContent>Refresh the list of models installed in Ollama</TooltipContent>
-          </Tip>
-          <span className="text-xs text-ink-3">
-            {tr.isPending ? "loading the model…" : live ? <>writes the SPARQL; checked by the validator; the grounded parser answers if it is slow or wrong</> : null}
-          </span>
-        </>
+        </div>
       )}
-      {tr.error && <span className="w-full text-xs text-bad">{String((tr.error as Error).message)}</span>}
+      {useLlm && ol && (!ol.reachable || !installed.length) && (
+        <button className="flex items-center gap-1 text-xs text-warn" onClick={() => void refetch()}>
+          <TbRefresh className={clsx("size-3.5", isFetching && "animate-spin")} />{ol.reachable ? "no models" : "Ollama offline"}
+        </button>
+      )}
+      <label className={clsx("flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-sm transition-colors",
+        useLlm ? "border-brand/40 bg-brand/5 text-ink" : "border-border bg-card text-ink-2")}>
+        <Switch checked={useLlm} onCheckedChange={setUseLlm} disabled={tr.isPending} />LLM
+      </label>
+      {tr.error && <span className="text-xs text-bad">{String((tr.error as Error).message)}</span>}
     </div>
   );
 }
@@ -131,14 +102,12 @@ function AskBody() {
   return (
     <div className="relative mx-auto flex max-w-4xl flex-col">
       <DotBackdrop />
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Ask your MDKGs</h1>
-          <p className="mt-1 text-sm text-ink-2">Plain-language questions become validated SPARQL. Nothing runs unless it passes syntax, grounding, scope and safety checks.</p>
+      <div className="mb-4 flex justify-end">
+        <div className="flex items-center gap-2">
+          <LlmPicker />
+          {chat.length > 0 && <Button variant="ghost" size="icon-sm" onClick={clear} aria-label="Clear the chat"><TbTrash /></Button>}
         </div>
-        {chat.length > 0 && <Button variant="outline" onClick={clear}><TbTrash />Clear</Button>}
       </div>
-      <LlmPicker />
 
         <>
           <div className="flex flex-col gap-4 pb-4">
@@ -158,7 +127,7 @@ function AskBody() {
                   <span className="flex gap-1">{[0, 1, 2].map((d) => (
                     <motion.i key={d} className="size-1.5 rounded-full bg-brand" animate={{ opacity: [0.2, 1, 0.2] }} transition={{ duration: 1, repeat: Infinity, delay: d * 0.15 }} />
                   ))}</span>
-                  {usingLlm ? <>asking {st!.translator.replace(/^ollama:/, "")} · validating · the grounded parser stands by</> : "matching your words to the MDKGs · validating · executing"}
+                  {usingLlm && st!.translator.replace(/^ollama:/, "")}
                 </div>
               </motion.div>
             )}
@@ -171,7 +140,7 @@ function AskBody() {
               onSubmit={(e) => { e.preventDefault(); submit(q); }}>
               <Textarea value={q} onChange={(e) => setQ(e.target.value)} rows={1} autoFocus
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(q); } }}
-                placeholder="Ask a question about your MDKGs…"
+                placeholder="Ask…"
                 className="max-h-40 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0" />
               <Button type="submit" size="icon" className="size-10 shrink-0 rounded-xl" disabled={!q.trim() || ask.isPending} aria-label="Ask"><TbArrowUp className="size-5" /></Button>
             </form>
@@ -196,7 +165,7 @@ function AnswerBubble({ a, animate }: { a: Answer; animate: boolean }) {
         <Chip tone={a.status === "executed" ? "good" : a.status === "fallback" ? "warn" : "bad"}>{a.status}</Chip>
         <Chip tone={a.status === "fallback" ? "warn" : undefined}>{answeredBy(a)}</Chip>
         {a.trace?.intent && <span>{a.trace.intent}</span>}
-        {a.trace?.matches?.map((m) => <Chip key={m} title="matched by the embedding / spelling matcher">{m}</Chip>)}
+        {a.trace?.matches?.map((m) => <Chip key={m}>{m}</Chip>)}
         {a.trace?.cached && <Chip>answered from memory</Chip>}
         <span className="ml-auto tabular-nums">{(a.seconds * 1000).toFixed(0)} ms</span>
       </div>

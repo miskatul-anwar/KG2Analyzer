@@ -26,9 +26,9 @@ const QueryPage = lazy(() => import("@/pages/Query"));
 const AskPage = lazy(() => import("@/pages/Ask"));
 
 const STEPS = [
-  { to: "/build", n: 1, label: "Build MDKGs", hint: "KGs → multidimensional KGs", icon: PiCubeFocusDuotone },
-  { to: "/query", n: 2, label: "Query", hint: "across MDKGs", icon: TbTable },
-  { to: "/ask", n: 3, label: "Ask", hint: "in plain language", icon: TbMessageChatbot },
+  { to: "/build", n: 1, label: "Build", icon: PiCubeFocusDuotone },
+  { to: "/query", n: 2, label: "Query", icon: TbTable },
+  { to: "/ask", n: 3, label: "Ask", icon: TbMessageChatbot },
 ];
 
 export default function App() {
@@ -75,7 +75,6 @@ export default function App() {
                     </span>
                     <span className="relative flex flex-col leading-tight">
                       <span className="font-medium">{s.label}</span>
-                      <span className="hidden text-[11px] text-ink-3 lg:block">{s.hint}</span>
                     </span>
                   </NavLink>
                 );
@@ -83,7 +82,7 @@ export default function App() {
             </nav>
             <div className="ml-auto flex items-center gap-2">
               <Button variant="outline" size="sm" className="hidden gap-2 text-ink-3 sm:inline-flex" onClick={() => setPalette(true)}>
-                <TbSearch className="size-3.5" />Jump to…<Kbd>⌘K</Kbd>
+                <TbSearch className="size-3.5" /><Kbd>⌘K</Kbd>
               </Button>
               {st && (
                 <Tooltip>
@@ -139,7 +138,7 @@ function ResetAll() {
       qc.clear();
       setOpen(false);
       nav("/build", { replace: true });
-      toast.success("Back to a clean start", { description: "Build, Query and Ask are empty. Files you saved are untouched." });
+      toast.success("Reset");
     },
   });
   return (
@@ -154,10 +153,7 @@ function ResetAll() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Reset everything?</DialogTitle>
-            <DialogDescription>
-              All three sections go back to empty: built MDKGs, loaded MDKGs, identity links, query selections, the Ask chat
-              and the Tev1/LLM switches. MDKG files you saved stay where they are.
-            </DialogDescription>
+            <DialogDescription className="sr-only">Reset</DialogDescription>
           </DialogHeader>
           {reset.error && <p className="text-sm text-bad">{String(reset.error)}</p>}
           <DialogFooter>

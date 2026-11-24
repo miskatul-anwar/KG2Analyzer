@@ -6,13 +6,12 @@ import { TbFileZip, TbPlus, TbSettings, TbTrash, TbUpload, TbX } from "react-ico
 import { api, type PipelineReport } from "@/api/client";
 import { useRefreshStore, useStatus } from "@/api/hooks";
 import { ShimmerButton } from "@/components/fx";
-import { ErrorBox } from "@/components/kit";
+import { ErrorBox, IconAction, Spinner } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUi } from "@/store";
 
 const RDF = /\.(ttl|nt|n3|rdf|owl|xml|jsonld|json-ld|nq|trig)$/i;
@@ -114,11 +113,8 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
       <div onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}
         className={clsx("rounded-2xl border-2 border-dashed p-3 transition", drag ? "border-brand bg-brand/5" : "border-border")}>
         <div className={clsx("flex flex-wrap items-center justify-between gap-2 px-1", hero ? "pb-3" : "pb-2")}>
-          <div className="text-sm text-ink-2">
-            Give each knowledge graph its <b className="text-ink">TBox</b> (schema) and <b className="text-ink">ABox</b> (instances).
-            <span className="text-ink-3"> Drop many files here to assign them by name.</span>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => bulk.current?.click()}><TbUpload />Add files…</Button>
+          <div />
+          <IconAction label="Add files" icon={<TbUpload />} variant="outline" onClick={() => bulk.current?.click()} />
           <input ref={bulk} type="file" multiple hidden accept=".ttl,.nt,.n3,.rdf,.owl,.xml,.jsonld,.nq,.trig,.zip"
             onChange={(e) => { if (e.target.files) assign(e.target.files); e.target.value = ""; }} />
         </div>
@@ -131,13 +127,13 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
               {r.both.length ? (
                 <div className="flex items-center gap-2 rounded-lg bg-raised px-3 py-2 text-xs text-ink-2 md:col-span-2">
                   <TbFileZip className="size-4 shrink-0 text-brand" /><span className="truncate">{r.both.map((f) => f.name).join(", ")}</span>
-                  <span className="hidden text-ink-3 lg:inline">· combined file, split into TBox and ABox automatically</span>
+                  <span className="hidden text-ink-3 lg:inline">· TBox + ABox</span>
                   <button className="ml-auto text-ink-3 hover:text-bad" onClick={() => setSlot(r.id, "both", [])} aria-label="remove"><TbX /></button>
                 </div>
               ) : (
                 <>
-                  <Slot label="TBox" hint="schema / ontology" icon={<PiTreeStructureDuotone className="size-4" />} files={r.tbox} onFiles={(f) => setSlot(r.id, "tbox", f)} />
-                  <Slot label="ABox" hint="instances / data" icon={<PiDatabaseDuotone className="size-4" />} files={r.abox} onFiles={(f) => setSlot(r.id, "abox", f)} />
+                  <Slot label="TBox" icon={<PiTreeStructureDuotone className="size-4" />} files={r.tbox} onFiles={(f) => setSlot(r.id, "tbox", f)} />
+                  <Slot label="ABox" icon={<PiDatabaseDuotone className="size-4" />} files={r.abox} onFiles={(f) => setSlot(r.id, "abox", f)} />
                 </>
               )}
               <Button variant="ghost" size="icon-sm" className="justify-self-end text-ink-3 hover:text-bad" aria-label="Remove KG"
@@ -146,47 +142,34 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
           ))}
           {extras.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs text-ink-2">
-              <TbFileZip className="size-4 text-brand" />Also uploading: {extras.map((f) => f.name).join(", ")}
-              <span className="text-ink-3">(archives are unpacked; owl:sameAs files become identity links)</span>
+              <TbFileZip className="size-4 text-brand" />{extras.map((f) => f.name).join(", ")}
+              
               <button className="ml-auto text-ink-3 hover:text-bad" onClick={() => setExtras([])} aria-label="remove"><TbX /></button>
             </div>
           )}
           <button className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-2 text-sm text-ink-2 transition hover:border-brand hover:text-brand"
-            onClick={() => setRows((cur) => [...cur, newRow()])}><TbPlus />Add another knowledge graph</button>
+            onClick={() => setRows((cur) => [...cur, newRow()])} aria-label="Add a KG"><TbPlus /></button>
         </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <ShimmerButton disabled={!canBuild || run.isPending} onClick={() => run.mutate()}>
-          {run.isPending ? "Building…" : extras.some((f) => /\.zip$/i.test(f.name)) ? "Build MDKGs" : `Build ${ready.length || ""} MDKG${ready.length === 1 ? "" : "s"}`}
+          {run.isPending ? "Building…" : "Build"}
         </ShimmerButton>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm">
-              <Switch id="tev1" checked={tev1} disabled={!tev1Installed || run.isPending} onCheckedChange={setPref} />
-              <Label htmlFor="tev1" className={clsx(!tev1Installed && "text-ink-3")}>Tev1</Label>
-              <span className="text-xs text-ink-3">{tev1 ? (st?.tev1_loaded ? "ready" : "loading…") : tev1Installed ? "off · ML classifiers" : "not installed · ML classifiers"}</span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent className="max-w-xs">
-            {tev1Installed
-              ? tev1 ? "KG2MD's decision model answers the fact-class, aggregate, unit and level-attribute questions. Answers are cached, so rebuilding the same KGs is quick."
-                : "Off: trained ML classifiers decide in milliseconds, from what classes and properties are called (embeddings and spelling) and how they are shaped. Every decision is explained; results are marked “not Tev1”."
-              : "Install Tev1 with `uv sync --extra tev1` (PyTorch + transformers; the model downloads on first use). Until then, trained ML classifiers decide (marked “not Tev1”)."}
-          </TooltipContent>
-        </Tooltip>
-        {run.isPending && <span className="text-xs text-ink-3">running the KG2MD notebook ({tev1 ? "Tev1 decisions" : "ML-classifier decisions"} · Otsu · hierarchies · QB4OLAP · audit), then linking.{tev1 && " With Tev1 on a CPU, a new KG takes up to a minute."}</span>}
+        <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm">
+          <Switch id="tev1" checked={tev1} disabled={!tev1Installed || run.isPending} onCheckedChange={setPref} />
+          <Label htmlFor="tev1" className={clsx(!tev1Installed && "text-ink-3")}>Tev1</Label>
+          {tev1 && !st?.tev1_loaded && <Spinner />}
+        </div>
         {!run.isPending && incomplete.length > 0 && <span className="text-xs text-warn">{incomplete.map((r) => r.name || "a KG").join(", ")}: add both a TBox and an ABox</span>}
         {!run.isPending && unnamed.length > 0 && <span className="text-xs text-warn">Name every knowledge graph</span>}
-        <button className="ml-auto inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink" onClick={() => setShowOptions(!showOptions)}>
-          <TbSettings className="size-3.5" />Options
-        </button>
+        <IconAction label="Options" icon={<TbSettings />} className="ml-auto text-ink-3" onClick={() => setShowOptions(!showOptions)} />
       </div>
       {showOptions && (
         <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg bg-raised px-3 py-2.5 text-sm text-ink-2">
           <div className="flex items-center gap-2">
             <Switch id="autolink" checked={autoLink} onCheckedChange={setAutoLink} />
-            <Label htmlFor="autolink">Discover owl:sameAs links between the KGs</Label>
+            <Label htmlFor="autolink">Auto-link</Label>
           </div>
           <div className="flex min-w-56 items-center gap-3">
             <span className={clsx(!autoLink && "opacity-50")}>confidence ≥ <b className="tabular-nums text-ink">{threshold.toFixed(2)}</b></span>
@@ -200,7 +183,7 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
 }
 
 /** One TBox or ABox drop slot. */
-function Slot({ label, hint, icon, files, onFiles }: { label: string; hint: string; icon: React.ReactNode; files: File[]; onFiles: (f: File[]) => void }) {
+function Slot({ label, icon, files, onFiles }: { label: string; icon: React.ReactNode; files: File[]; onFiles: (f: File[]) => void }) {
   const input = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const add = (list: FileList | null) => { if (list?.length) onFiles([...files, ...[...list].filter((f) => RDF.test(f.name))]); };
@@ -218,7 +201,7 @@ function Slot({ label, hint, icon, files, onFiles }: { label: string; hint: stri
           <button className="ml-auto text-ink-3 hover:text-bad" aria-label={`clear ${label}`} onClick={(e) => { e.stopPropagation(); onFiles([]); }}><TbX /></button>
         </>
       ) : (
-        <span className="truncate"><b className="text-ink">{label}</b> <span className="text-ink-3">· {hint} · drop or click</span></span>
+        <span className="truncate"><b className="text-ink">{label}</b></span>
       )}
       <input ref={input} type="file" multiple hidden accept=".ttl,.nt,.n3,.rdf,.owl,.xml,.jsonld,.nq,.trig" onClick={(e) => e.stopPropagation()}
         onChange={(e) => { add(e.target.files); e.target.value = ""; }} />

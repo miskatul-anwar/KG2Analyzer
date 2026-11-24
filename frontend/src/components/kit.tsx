@@ -12,6 +12,25 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { fmtCell } from "@/lib/format";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+/** An icon-only button; its name shows as a tooltip and is its accessible label. */
+export function IconAction({ label, icon, onClick, href, download, variant = "ghost", disabled, className }: {
+  label: string; icon: ReactNode; onClick?: (e: React.MouseEvent) => void; href?: string; download?: string;
+  variant?: "ghost" | "outline" | "default"; disabled?: boolean; className?: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {href
+          ? <Button variant={variant} size="icon-sm" asChild className={className}><a href={href} download={download} aria-label={label}>{icon}</a></Button>
+          : <Button variant={variant} size="icon-sm" onClick={onClick} disabled={disabled} aria-label={label} className={className}>{icon}</Button>}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function Card({ title, subtitle, actions, children, className }: {
   title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string;
@@ -30,12 +49,12 @@ export function Card({ title, subtitle, actions, children, className }: {
   );
 }
 
-export function PageHeader({ title, description, children }: { title: string; description: ReactNode; children?: ReactNode }) {
+export function PageHeader({ title, description, children }: { title: string; description?: ReactNode; children?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-        <p className="mt-1 max-w-3xl text-sm text-ink-2">{description}</p>
+        {description && <p className="mt-1 max-w-3xl text-sm text-ink-2">{description}</p>}
       </div>
       {children}
     </div>

@@ -18,7 +18,7 @@ const split = (v: string) => { const [a, b] = v.split("|"); return [a ?? "", b ?
 
 export default function QueryPage() {
   return (
-    <MdkgLoader ws="query" title="Load MDKGs to query">
+    <MdkgLoader ws="query">
       <QueryBody />
     </MdkgLoader>
   );
@@ -33,19 +33,15 @@ function QueryBody() {
     return (
       <Empty>
         <div className="flex flex-col items-center gap-3">
-          <span>The loaded files contain no cubes.</span>
-          <Button asChild><Link to="/build">Build MDKGs in step 1<ArrowRight className="size-4" /></Link></Button>
+          <span>No cubes</span>
+          <Button asChild><Link to="/build">Build<ArrowRight className="size-4" /></Link></Button>
         </div>
       </Empty>
     );
   }
   return (
     <>
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Query your MDKGs</h1>
-          <p className="mt-1 text-sm text-ink-2">Pick a measure and how to break it down; results update as you choose. Combine two MDKGs to compare them per shared entity.</p>
-        </div>
+      <div className="mb-4 flex justify-end">
         <Segmented value={tab} onChange={setTab} options={[{ value: "builder", label: "Builder" }, { value: "sparql", label: "SPARQL" }]} />
       </div>
       {tab === "builder" ? <Builder cat={cat} /> : <SparqlTab />}
@@ -78,7 +74,7 @@ function Builder({ cat }: { cat: Catalog }) {
     <div className="grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
       <Card className="h-fit lg:sticky lg:top-24">
         <div className="flex flex-col gap-4">
-          <Field n={1} label="Measure">
+          <Field label="Measure">
             <GroupSelect value={`${q.kg}|${q.measure}`} onChange={(v) => {
               const [kg, measure] = split(v);
               const c = cat.cubes.find((x) => x.kg === kg)!;
@@ -90,21 +86,21 @@ function Builder({ cat }: { cat: Catalog }) {
 
           {cube && !comparing && (
             <>
-              <Field n={2} label="Break down by">
+              <Field label="Group by">
                 <LevelSelect cube={cube} value={q.groupBy} onChange={(groupBy) => set({ groupBy })} allowNone="Grand total" />
               </Field>
-              <Field n={3} label="How to aggregate" optional>
+              <Field label="Aggregate">
                 <Segmented small value={q.aggregate} onChange={(aggregate) => set({ aggregate })}
                   options={[{ value: "", label: "auto" }, ...["sum", "avg", "min", "max", "count"].map((a) => ({ value: a, label: a }))]} />
               </Field>
-              <Field n={4} label="Only for" optional>
+              <Field label="Filter">
                 <LevelSelect cube={cube} value={q.filterLevel} onChange={(filterLevel) => set({ filterLevel, filterMember: "" })} allowNone="Everything" />
                 {q.filterLevel && <MemberSelect kg={cube.kg} level={q.filterLevel} value={q.filterMember} onChange={(filterMember) => set({ filterMember })} />}
               </Field>
             </>
           )}
 
-          <Field n={comparing ? 2 : 5} label="Compare with another MDKG" optional>
+          <Field label="Compare">
             <GroupSelect value={q.compareKg && q.compareMeasure ? `${q.compareKg}|${q.compareMeasure}` : ""} none="No comparison" onChange={(v) => {
               const [compareKg, compareMeasure] = split(v);
               set({ compareKg, compareMeasure, join: null });
@@ -124,12 +120,11 @@ function Builder({ cat }: { cat: Catalog }) {
   );
 }
 
-function Field({ n, label, optional, children }: { n?: number; label: string; optional?: boolean; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 text-xs font-semibold text-ink-2">
-        {n !== undefined && <span className="flex size-5 items-center justify-center rounded-full bg-raised text-[10px]">{n}</span>}
-        {label}{optional && <span className="font-normal text-ink-3">· optional</span>}
+        {label}
       </div>
       {children}
     </div>
@@ -169,7 +164,7 @@ function JoinSelect({ a, b }: { a: string; b: string }) {
     if (options.length && !options.some((o) => o.left_dim === join?.left_dim && o.right_dim === join?.right_dim && o.link === join?.link)) set({ join: options[0] });
   }, [options, join, set]);
   if (isLoading) return <Spinner label="finding shared entities…" />;
-  if (!options.length) return <Warning>{a} and {b} share no entities or values, so they can't be combined. Link them on the Build page first.</Warning>;
+  if (!options.length) return <Warning>No shared entities between {a} and {b}</Warning>;
   const idx = join ? options.findIndex((o) => o.left_dim === join.left_dim && o.right_dim === join.right_dim && o.link === join.link) : 0;
   return <GroupSelect value={String(Math.max(0, idx))} onChange={(v) => set({ join: options[Number(v)] })}
     options={options.map((o, i) => ({ value: String(i), label: `joined on ${o.label}` }))} />;
@@ -220,7 +215,6 @@ function OlapResult({ q, cube }: { q: QuerySel; cube?: CatalogCube }) {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              {rows.length > 20 && <p className="text-xs text-ink-3">Chart shows the top 20 of {rows.length}; all rows are in the table.</p>}
               <div className="mt-3">
                 <DataTable rows={rows} columns={[{ key: "group", header: human(gLevel) }, { key: "total", header: agg.toLowerCase(), numeric: true },
                   { key: "observations", header: "observations", numeric: true }]} />
@@ -290,8 +284,7 @@ function CompareView({ r, q, cube, other, busy }: { r: CrossCompare; q: QuerySel
         ) : <Empty>No aligned entities produced values.</Empty>}
       </Card>
       {rows.length > 0 && (
-        <Card title={<span className="flex items-center gap-2"><ShieldCheck className="size-4 text-good" />Why these totals are correct</span>}
-          subtitle="Each MDKG is aggregated on its own before joining (pushdown). Joining raw observations first multiplies every value by the other side's count.">
+        <Card title={<span className="flex items-center gap-2"><ShieldCheck className="size-4 text-good" />Why these totals are correct</span>} >
           {inflated && <div className="mb-3 flex flex-wrap gap-2"><Chip tone="good">pushdown: exact</Chip><Chip tone="bad">naive join would inflate up to ×{res.guard.max_inflation}</Chip></div>}
           <DataTable rows={rows} columns={[
             { key: "entity", header: "entity" },
@@ -343,13 +336,12 @@ function SparqlTab() {
   const kgs = st?.kgs ?? [];
   return (
     <div className="flex flex-col gap-4">
-      <Card subtitle="Read-only SPARQL 1.1 over all MDKGs (one store) or a single MDKG. Each MDKG is a named graph; the identity links are in <http://example.org/graphs/identities>.">
+      <Card>
         <Textarea className="mono min-h-56 w-full" spellCheck={false} value={query} onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") run.mutate({ q: query, kg: null }); }} />
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Button disabled={run.isPending} onClick={() => run.mutate({ q: query, kg: null })}><Play className="size-4" />Run on all MDKGs</Button>
           {kgs.map((k) => <Button key={k} variant="outline" disabled={run.isPending} onClick={() => run.mutate({ q: query, kg: k })}>{k}</Button>)}
-          <span className="ml-auto text-xs text-ink-3">Ctrl/⌘ + Enter</span>
           {run.isPending && <Spinner />}
         </div>
       </Card>

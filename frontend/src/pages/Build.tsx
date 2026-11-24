@@ -1,13 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
-import { PiCubeFocusDuotone, PiGraphDuotone, PiTreeStructureDuotone } from "react-icons/pi";
-import { TbAlertTriangle, TbCircleCheck, TbDeviceFloppy, TbDownload, TbLink, TbPlus, TbRefresh, TbSearch, TbTrash } from "react-icons/tb";
-import { Link } from "react-router-dom";
+import { PiCubeFocusDuotone } from "react-icons/pi";
+import { TbAlertTriangle, TbCircleCheck, TbDeviceFloppy, TbDownload, TbLink, TbPlus, TbRefresh, TbSearch, TbTrash, TbX } from "react-icons/tb";
 import { toast } from "sonner";
 import { api, type IdentityLink, type OverviewKg, type PipelineReport } from "@/api/client";
 import { useCatalog, useOverview, useRefreshStore } from "@/api/hooks";
 import { DotBackdrop, GlowCard, Reveal, Spotlight } from "@/components/fx";
-import { Card, Chip, DataTable, ErrorBox, Kpi, LoadingBlock, PageHeader, Select, Spinner } from "@/components/kit";
+import { Card, Chip, DataTable, ErrorBox, IconAction, Kpi, LoadingBlock, Select, Spinner } from "@/components/kit";
 import { MdkgDetails } from "@/components/MdkgDetails";
 import { MdkgMap } from "@/components/MdkgMap";
 import { Pipeline } from "@/components/Pipeline";
@@ -30,7 +29,7 @@ async function save(kgs: string[]) {
 
 function announce(r: PipelineReport, all: string[]) {
   toast.success(`Built ${r.kgs.length} MDKG${r.kgs.length === 1 ? "" : "s"} in ${r.seconds.total}s`, {
-    description: `Ready in Query and Ask.${r.identity.auto_link ? ` ${r.identity.links_added} identity link${r.identity.links_added === 1 ? "" : "s"} discovered · ${r.identity.clusters} shared entities.` : ""}`,
+    description: r.identity.auto_link ? `${r.identity.links_added} identity link${r.identity.links_added === 1 ? "" : "s"}` : undefined,
     action: { label: "Save", onClick: () => void save(all.length ? all : r.kgs.map((k) => k.kg)) },
     duration: 10000,
   });
@@ -50,26 +49,9 @@ export default function BuildPage() {
       <div className="relative isolate mx-auto max-w-3xl pt-6">
         <DotBackdrop />
         <Spotlight className="left-1/2 top-0 h-80 w-[36rem] -translate-x-1/2" />
-        <div className="mb-8 text-center">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card/80 px-3 py-1 text-xs text-ink-2 backdrop-blur">
-            <PiCubeFocusDuotone className="size-4 text-brand" />Step 1 of 3
-          </span>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight">Turn your knowledge graphs into <span className="bg-gradient-to-r from-brand to-[var(--s7)] bg-clip-text text-transparent">MDKGs</span></h1>
-          <p className="mx-auto mt-3 max-w-xl text-ink-2">Drop the whole set. Each KG becomes a multidimensional KG with cubes, measures and hierarchies, and the KGs are linked so you can query and ask across all of them.</p>
-        </div>
         <div className="rounded-2xl border border-border bg-card/80 p-5 shadow-xl shadow-black/5 backdrop-blur">
           <Pipeline replace hero onDone={(r) => announce(r, [])} />
         </div>
-        <Reveal className="mt-8 grid gap-3 sm:grid-cols-3">
-          {([[PiCubeFocusDuotone, "Build", "Fact classes, measures and hierarchies are found automatically."],
-            [PiTreeStructureDuotone, "Query", "Pick a measure and a level; results appear instantly."],
-            [PiGraphDuotone, "Ask", "Type a question in plain language."]] as const).map(([Icon, t, d], i) => (
-            <div key={t} data-reveal className="rounded-xl border border-border bg-card/70 p-4 backdrop-blur">
-              <Icon className="size-6 text-brand" /><div className="mt-2 font-semibold">{i + 1} · {t}</div>
-              <div className="text-sm text-ink-2">{d}</div>
-            </div>
-          ))}
-        </Reveal>
       </div>
     );
   }
@@ -78,19 +60,13 @@ export default function BuildPage() {
   const open = ov.kgs.find((k) => k.kg === openKg);
   return (
     <>
-      <PageHeader title="Your MDKGs" description="One multidimensional KG per input KG, linked through shared entities. Open a card to see how it was built.">
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setPanel("add")}><TbPlus />Add KGs</Button>
-          <Button variant="outline" onClick={() => setPanel("replace")}><TbRefresh />Start over</Button>
-          <Button variant="outline" asChild><a href={api.mdkgZipUrl()} download="mdkg.zip"><TbDownload />.zip</a></Button>
-          <Button onClick={() => void save(ov.kgs.map((k) => k.kg))}><TbDeviceFloppy />Save MDKGs…</Button>
-        </div>
-      </PageHeader>
-
-      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-brand/25 bg-brand/5 px-4 py-2.5 text-sm text-ink-2">
-        <TbDeviceFloppy className="size-4 text-brand" />
-        <span><b className="text-ink">Save your MDKGs</b> to a folder of your choice, then load them in <Link to="/query" className="font-medium text-brand hover:underline">Query</Link> or <Link to="/ask" className="font-medium text-brand hover:underline">Ask</Link>. The three steps share files, not state.</span>
+      <div className="mb-4 flex justify-end gap-1.5">
+        <IconAction label="Add KGs" icon={<TbPlus />} variant="outline" onClick={() => setPanel("add")} />
+        <IconAction label="Start over" icon={<TbRefresh />} variant="outline" onClick={() => setPanel("replace")} />
+        <IconAction label="Download mdkg.zip" icon={<TbDownload />} variant="outline" href={api.mdkgZipUrl()} download="mdkg.zip" />
+        <IconAction label="Save MDKGs" icon={<TbDeviceFloppy />} variant="default" onClick={() => void save(ov.kgs.map((k) => k.kg))} />
       </div>
+
       <div className="mb-5 flex flex-wrap gap-3">
         <Kpi value={ov.kgs.length} label="MDKGs" />
         <Kpi value={cubes.length} label="fact cubes" />
@@ -104,8 +80,7 @@ export default function BuildPage() {
       </Reveal>
 
       {cat && cat.cubes.length > 0 && (
-        <Card className="mt-5" title={<span className="flex items-center gap-2"><PiGraphDuotone className="size-5 text-brand" />Map of your MDKGs</span>}
-          subtitle="Each cube with its dimension levels; orange edges join the same entity across MDKGs. Hover to focus, scroll to zoom.">
+        <Card className="mt-5">
           <MdkgMap cat={cat} links={ov.identity.links} />
         </Card>
       )}
@@ -115,8 +90,8 @@ export default function BuildPage() {
       <Sheet open={!!open} onOpenChange={(o) => !o && setOpenKg("")}>
         <SheetContent side="right" className="w-full overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-4xl">
           <SheetHeader>
-            <SheetTitle>How <span className="text-brand">{openKg}</span> became an MDKG</SheetTitle>
-            <SheetDescription>The KG2MD notebook run: Tev1 fact scores and the Otsu split, aggregate functions, hierarchies, the audit and every decision.</SheetDescription>
+            <SheetTitle className="text-brand">{openKg}</SheetTitle>
+            <SheetDescription className="sr-only">KG2MD run details</SheetDescription>
           </SheetHeader>
           <div className="px-4 pb-6">{open && <MdkgDetails kg={open.kg} />}</div>
         </SheetContent>
@@ -125,8 +100,8 @@ export default function BuildPage() {
       <Dialog open={!!panel} onOpenChange={(o) => !o && setPanel("")}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{panel === "add" ? "Add knowledge graphs to this set" : "Start over with a new set"}</DialogTitle>
-            <DialogDescription>{panel === "replace" ? "The current MDKGs and identity links will be replaced." : "New KGs are built and linked to the ones already loaded."}</DialogDescription>
+            <DialogTitle>{panel === "add" ? "Add KGs" : "Start over"}</DialogTitle>
+            <DialogDescription className="sr-only">{panel === "replace" ? "Replace" : "Add"}</DialogDescription>
           </DialogHeader>
           <Pipeline replace={panel === "replace"} onDone={(r) => { announce(r, panel === "add" ? [...ov.kgs.map((k) => k.kg), ...r.kgs.map((k) => k.kg)] : []); setPanel(""); }} />
         </DialogContent>
@@ -160,16 +135,19 @@ function MdkgCard({ k, active, onOpen }: { k: OverviewKg; active: boolean; onOpe
         {k.cubes.length ? k.cubes.map((c) => <Chip key={c.dataset} tone="accent">{c.fact_class} · {c.observations} obs · {c.measures} measures</Chip>)
           : <Chip tone="warn">no fact class found</Chip>}
       </div>
-      {k.warnings.map((w) => (
-        <div key={w} className="flex items-start gap-1.5 text-xs text-warn" title={k.undeclared_properties.join("\n")}><TbAlertTriangle className="mt-0.5 size-3.5 shrink-0" />{w}</div>
-      ))}
+      {k.warnings.length > 0 && (
+        <Tooltip>
+          <TooltipTrigger asChild><span className="inline-flex w-fit items-center gap-1 text-xs text-warn"><TbAlertTriangle className="size-3.5" />{k.warnings.length}</span></TooltipTrigger>
+          <TooltipContent className="max-w-xs">{k.warnings.map((w) => <div key={w}>{w}</div>)}</TooltipContent>
+        </Tooltip>
+      )}
       <div className="mt-auto flex items-center gap-2 text-xs">
-        {ok ? <span className="inline-flex items-center gap-1 text-good"><TbCircleCheck className="size-3.5" />all facts &amp; measures preserved</span>
-          : k.cubes.length ? <span className="text-bad">audit: values not preserved</span> : null}
-        <button className="ml-auto inline-flex items-center gap-1 text-ink-2 hover:text-brand" onClick={(e) => {
+        {ok ? <span className="inline-flex items-center gap-1 text-good"><TbCircleCheck className="size-3.5" />100%</span>
+          : k.cubes.length ? <span className="text-bad">audit failed</span> : null}
+        <IconAction label={`Save ${k.kg}`} icon={<TbDeviceFloppy />} className="ml-auto text-ink-2" onClick={(e) => {
           e.stopPropagation();
           saveOneMdkg(k.kg).then((w) => w && toast.success(w)).catch((err) => toast.error(String(err)));
-        }}><TbDeviceFloppy className="size-3.5" />Save folder</button>
+        }} />
       </div>
     </GlowCard>
   );
@@ -178,16 +156,15 @@ function MdkgCard({ k, active, onOpen }: { k: OverviewKg; active: boolean; onOpe
 function IdentityLinks({ kgs, links }: { kgs: string[]; links: IdentityLink[] }) {
   const [finding, setFinding] = useState(false);
   return (
-    <Card className="mt-5" title={<span className="flex items-center gap-2"><TbLink className="size-4 text-brand" />Identity links ({links.length})</span>}
-      subtitle="The same real-world entity in different KGs (owl:sameAs). Queries that combine MDKGs join through these."
-      actions={kgs.length > 1 && <Button variant="outline" size="sm" onClick={() => setFinding(!finding)}><TbSearch />{finding ? "Done" : "Find more links"}</Button>}>
+    <Card className="mt-5" title={<span className="flex items-center gap-2"><TbLink className="size-4 text-brand" />{links.length}</span>}
+      actions={kgs.length > 1 && <IconAction label={finding ? "Done" : "Find links"} icon={finding ? <TbX /> : <TbSearch />} variant="outline" onClick={() => setFinding(!finding)} />}>
       {finding && <FindLinks kgs={kgs} />}
       {links.length ? (
         <DataTable rows={links} max={100} columns={[
           { key: "left", header: "entity", render: (l) => <span>{l.left_label ?? localName(l.left)} <span className="text-xs text-ink-3">in {l.left_kg}</span></span> },
           { key: "right", header: "same as", render: (l) => <span>{l.right_label ?? localName(l.right)} <span className="text-xs text-ink-3">in {l.right_kg}</span></span> },
         ]} />
-      ) : <p className="text-sm text-ink-3">No links yet{kgs.length > 1 ? ". Use “Find more links” to discover some." : ". Add a second KG to link them."}</p>}
+      ) : <p className="text-sm text-ink-3">No links</p>}
     </Card>
   );
 }
