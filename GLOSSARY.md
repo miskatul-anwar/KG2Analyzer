@@ -129,5 +129,8 @@ Anything that turns a question into a draft SPARQL query: an LLM (Ollama, OpenAI
 **Grounded parser**:
 The deterministic translator that can only emit catalogue vocabulary; used offline and as the fallback after LLM retries.
 
+**Embedding matcher**:
+The grounded parser's fallback when a question's words are not the MDKG's own (`nl/semantic.py`): it matches phrases to catalogue measures, levels and KGs by meaning (model2vec embeddings) or by spelling (character n-grams), and only ever returns catalogue items. Used whenever the LLM is switched off or fails.
+
 **Validation rules**:
 Syntax, grounding, scope, safety; a draft runs only if all four pass.

@@ -89,13 +89,14 @@ class KG2Analyzer:
     # ---------------------------------------------------------------- batch pipeline
     def ingest(self, files: list[RdfFile], auto_link: bool = True, link_threshold: float = 0.6,
                reset: bool = False, max_facts: int | None = None, engine: str = "notebook",
-               env: dict[str, str] | None = None) -> dict:
+               env: dict[str, str] | None = None, decider: str | None = None) -> dict:
         """A delivery of raw KGs -> one MDKG per KG -> identity graph (supplied and/or discovered).
 
         ``files`` may mix single-file KGs, TBox/ABox pairs, per-KG folders, zip archives and
         owl:sameAs files (see ``kg2analyzer.ingest``). Returns a JSON-ready pipeline report.
         ``engine="notebook"`` (default) runs the KG2MD notebook on each KG; ``"builtin"`` runs the
         thesis-era reimplementation (``run_kg2md``). ``env`` passes KG2MD_* options to the notebook.
+        ``decider`` is ``"tev1"`` or ``"structural"`` for this build (default: the analyzer's decider / KG2A_DECIDER).
         """
         if engine not in ("notebook", "builtin"):
             raise ValueError("engine must be notebook or builtin")
@@ -111,7 +112,7 @@ class KG2Analyzer:
         report_kgs = []
         for name, kg in kgs.items():
             if engine == "notebook":
-                self.build_mdkg(name, kg, env)
+                self.build_mdkg(name, kg, env, decider)
             else:
                 self.load_kg(name, kg.abox, max_facts=max_facts, tbox=kg.tbox)
             self.inputs[name] = {"tbox_files": kg.tbox_files, "abox_files": kg.abox_files}
@@ -152,11 +153,12 @@ class KG2Analyzer:
                         for c in out["candidates"] if (c["left"], c["right"]) in new]})
         return pairs, added
 
-    def build_mdkg(self, name: str, kg: KgInput, env: dict[str, str] | None = None) -> dict:
+    def build_mdkg(self, name: str, kg: KgInput, env: dict[str, str] | None = None, decider: str | None = None) -> dict:
         """Run the KG2MD notebook on one KG's TBox + ABox and host the MDKG it writes."""
-        from kg2analyzer.kg2md.notebook import run_notebook
+        from kg2analyzer.kg2md.notebook import resolve_decider, run_notebook
 
-        run = run_notebook(kg.turtle("tbox"), kg.turtle("abox"), decider=self.decider, env=env)
+        chosen = resolve_decider(decider) if decider else (self.decider or resolve_decider(None))
+        run = run_notebook(kg.turtle("tbox"), kg.turtle("abox"), decider=chosen, env=env)
         files = [RdfFile(f"{name}/{p}", b) for p, b in run.files.items()]
         if name in self.store.sources:
             self.remove_kg(name)

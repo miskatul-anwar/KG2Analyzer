@@ -10,7 +10,10 @@ import { api, type Answer } from "@/api/client";
 import { useRefreshStore, useStatus, useSuggestions } from "@/api/hooks";
 import { MdkgLoader } from "@/components/MdkgLoader";
 import { DotBackdrop, TextGenerate } from "@/components/fx";
-import { Chip, Code, ErrorBox, GroupSelect, RowsTable } from "@/components/kit";
+import { Chip, Code, ErrorBox, RowsTable } from "@/components/kit";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip as Tip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtNum, localName, SERIES } from "@/lib/format";
@@ -43,7 +46,21 @@ function AskBody() {
     mutationFn: api.ask,
     onSuccess: (a) => { push(a); setFresh(useUi.getState().chat.length - 1); setQ(""); },
   });
-  const tr = useMutation({ mutationFn: api.setTranslator, onSuccess: (r) => { void refresh(); toast.success(`Translator: ${r.translator}`); } });
+  const useLlm = useUi((s) => s.useLlm);
+  const setUseLlm = useUi((s) => s.setUseLlm);
+  const tr = useMutation({ mutationFn: api.setTranslator, onSuccess: () => void refresh() });
+  const parserOnly = st?.translator === "grounded-parser";
+  const llmReachable = st?.llm.reachable ?? false;
+  // keep the server's translator in line with the switch (the server forgets it when restarted)
+  useEffect(() => {
+    if (!st || tr.isPending) return;
+    if (useLlm && parserOnly && llmReachable) tr.mutate("auto");
+    if (!useLlm && !parserOnly) tr.mutate("rules");
+  }, [useLlm, st?.translator, llmReachable]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggleLlm = (on: boolean) => {
+    setUseLlm(on);
+    if (on && !llmReachable) toast.warning(`No LLM server at ${st?.llm.server ?? "localhost:11434"} with ${st?.llm.model ?? "the model"}; answering with embeddings until one is running.`);
+  };
   const submit = (text: string) => { const t = text.trim(); if (t && !ask.isPending) ask.mutate(t); };
 
   // A question handed over from the ⌘K palette.
@@ -62,14 +79,24 @@ function AskBody() {
           <p className="mt-1 text-sm text-ink-2">Plain-language questions become validated SPARQL. Nothing runs unless it passes syntax, grounding, scope and safety checks.</p>
         </div>
         <div className="flex items-end gap-2">
-          <div className="w-60">
-            <GroupSelect label={`Translator · now ${st?.translator ?? "…"}`} value="" onChange={(v) => v && tr.mutate(v)} placeholder="Change…" options={[
-              { value: "rules", label: "Grounded parser (offline)" },
-              { value: "auto", label: "Auto (Ollama if available)" },
-              { value: "ollama", label: "Ollama · qwen2.5-coder:3b" },
-              { value: "openai", label: "OpenAI-compatible server" },
-            ]} />
-          </div>
+          <Tip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm">
+                <Switch id="llm" checked={useLlm} onCheckedChange={toggleLlm} disabled={tr.isPending} />
+                <Label htmlFor="llm">LLM</Label>
+                <span className="text-xs text-ink-3">
+                  {!st ? "…" : !parserOnly ? st.translator.replace(/^ollama:/, "") : useLlm && !llmReachable ? "no server · embeddings" : "off · embeddings"}
+                </span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              {!parserOnly
+                ? `The LLM (${st?.translator}) writes the SPARQL; the validator checks it, and the grounded parser answers if it fails.`
+                : <>The grounded parser answers: question words are matched to the MDKG vocabulary exactly, by meaning
+                  ({st?.embeddings.startsWith("model2vec") ? "potion-base-8M embeddings" : "embedding model offline"}) and by spelling (character n-grams).
+                  {useLlm && !llmReachable && <> No LLM server answers at {st?.llm.server} with {st?.llm.model}.</>}</>}
+            </TooltipContent>
+          </Tip>
           {chat.length > 0 && <Button variant="outline" onClick={clear}><TbTrash />Clear</Button>}
         </div>
       </div>
@@ -144,6 +171,8 @@ function AnswerBubble({ a, animate }: { a: Answer; animate: boolean }) {
       <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-ink-3">
         <Chip tone={a.status === "executed" ? "good" : a.status === "fallback" ? "warn" : "bad"}>{a.status}</Chip>
         {a.trace?.intent && <span>{a.trace.intent}</span>}
+        {a.trace?.matches?.map((m) => <Chip key={m} title="matched by the embedding / spelling matcher">{m}</Chip>)}
+        {a.trace?.cached && <Chip>answered from memory</Chip>}
         <span className="ml-auto tabular-nums">{(a.seconds * 1000).toFixed(0)} ms</span>
       </div>
       <div className={clsx("flex items-start gap-2 font-medium", !ok && "text-bad")}>

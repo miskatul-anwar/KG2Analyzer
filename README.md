@@ -39,6 +39,10 @@ cd frontend && npm ci && npm run build
 cd backend && uv sync --extra tev1 && uv run kg2analyzer serve
 ```
 
+**Switches.** Build has a **Tev1** switch: on, KG2MD's decision model answers the notebook's questions; off, the structural stand-in decides in milliseconds (reports say "not Tev1"). Ask has an **LLM** switch: on, the LLM (Ollama) writes the SPARQL first; off, the grounded parser answers, matching question words to the MDKG vocabulary exactly, by meaning (model2vec `potion-base-8M` embeddings, ~30 MB, no PyTorch) and by spelling (character n-grams). Every query passes the same four validation rules either way.
+
+**Fast demos.** Tev1 and the embedding model load in the background when the server starts. Every Tev1 answer is cached on disk (`~/.cache/kg2analyzer`, or `KG2A_CACHE_DIR`), so building the same KGs again takes under a second; build the demo KGs once beforehand. Answers to repeated questions are remembered too. The tiny shop/bank KGs in `backend/tests/fixtures/tiny/` come with example questions and expected answers.
+
 `--extra tev1` installs PyTorch, transformers and accelerate; Tev1 (about 1.8 GB) downloads on the first build. It runs on a GPU when one works and otherwise on the CPU (`KG2MD_TEV1_DEVICE=auto|cpu|cuda`; about a minute per KG on 4 CPU cores). Without the extra, `uv sync` is enough for Query and Ask, and Build can use the structural stand-in, which is **not** Tev1 and is flagged as such in every report: `uv run kg2analyzer serve --decider structural`. The notebook's other options (`KG2MD_HIERARCHY_CONFIG`, `KG2MD_AS_OF`, `KG2MD_VIEW_CONFIG`, `KG2MD_FACT_GUARD`, `KG2MD_UNIT_THRESHOLD`, ...) are read from the environment as in the notebook.
 
 Open http://127.0.0.1:8000. Optional preloading: `--kgs <raw KGs>` fills Build; `--mdkgs <saved MDKGs>` fills Query and Ask.

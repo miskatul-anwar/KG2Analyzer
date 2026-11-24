@@ -19,7 +19,7 @@ RUN uv sync --frozen --no-dev --no-install-project $EXTRAS
 COPY backend/ ./
 RUN uv sync --frozen --no-dev $EXTRAS
 COPY --from=ui /ui/dist /app/frontend/dist
-ENV KG2A_TRANSLATOR=auto HF_HOME=/data/.hf
+ENV KG2A_TRANSLATOR=auto HF_HOME=/data/.hf KG2A_CACHE_DIR=/data/.cache
 EXPOSE 8000
 # KGs: mount them and pass --kgs, e.g. docker run -p 8000:8000 -v "$PWD/my_kgs:/data" kg2analyzer --kgs /data
 ENTRYPOINT ["uv", "run", "--no-sync", "kg2analyzer", "serve", "--host", "0.0.0.0", "--port", "8000"]

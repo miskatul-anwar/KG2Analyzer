@@ -17,6 +17,7 @@ import httpx
 from kg2analyzer.catalog import Catalog, CubeInfo
 from kg2analyzer.graphml import tokens
 from kg2analyzer.kg2md.profiling import local_name
+from kg2analyzer.nl import semantic
 from kg2analyzer.nl.validator import mentioned_domains
 from kg2analyzer.olap import Axis, Filter, build_rollup
 from kg2analyzer.planner import CrossCubeQuery, CubeSide, pushdown_sparql
@@ -82,6 +83,22 @@ class OpenAICompatibleTranslator:
         return r.json()["choices"][0]["message"]["content"]
 
 
+_LLM_CHECK: dict = {"at": 0.0, "value": None}
+
+
+def llm_available() -> dict:
+    """Is an LLM server reachable for the Ask translator? (checked at most every 20 s)"""
+    import time
+
+    if _LLM_CHECK["value"] is None or time.time() - _LLM_CHECK["at"] > 20:
+        o = OllamaTranslator()
+        _LLM_CHECK.update(at=time.time(), value={"server": o.url, "model": o.model, "reachable": o.available()})
+    return _LLM_CHECK["value"]
+
+
+ANALYTIC = re.compile(r"\b(total|sum|average|avg|mean|how much|how many|count|number of|per|by|each|max|maximum|"
+                      r"min|minimum|highest|lowest|top|most|least)\b", re.I)
+
 AGG_WORDS = [
     ("avg", ("average", "avg", "mean", "typical")),
     ("max", ("maximum", "max", "highest", "peak", "largest", "biggest")),
@@ -103,6 +120,7 @@ class ParseTrace:
     group_by: list[str] = field(default_factory=list)
     filters: list[str] = field(default_factory=list)
     intent: str = ""
+    matches: list[str] = field(default_factory=list)  # embedding / spelling matches used
 
 
 class GroundedParser:
@@ -116,6 +134,7 @@ class GroundedParser:
     def __init__(self, cat: Catalog, store: MultiKGStore):
         self.cat, self.store = cat, store
         self.last_trace = ParseTrace()
+        self._question = ""
         self._members: dict[str, list[tuple[str, str, str, str]]] = {}
 
     # -- vocabulary helpers -------------------------------------------------------
@@ -139,6 +158,12 @@ class GroundedParser:
             s = sum(1 for t in qtoks if t in mt or t.rstrip("s") in mt)
             if s > best_s:
                 best, best_s = m, s
+        if best is None and self._question:
+            head = re.split(r"\b(?:by|per|for each|grouped by|broken down by|in|at|for)\b", self._question.lower())[0]
+            hit = semantic.SemanticIndex([(m.iri, m.label) for m in cube.measures]).match(semantic.phrases(head))
+            if hit:
+                self._note(hit)
+                return next(m for m in cube.measures if m.iri == hit.key)
         if best is None:
             best = next((m for m in cube.measures if m.additivity == "additive"), cube.measures[0] if cube.measures else None)
         return best
@@ -185,6 +210,13 @@ class GroundedParser:
             for d in cube.dimensions:  # then dimension property names (customer, store, trader ...)
                 if w in [t.rstrip("s") for t in tokens(d.name)]:
                     return (d.prop, None)
+        # no exact word: match the phrase by meaning or spelling ("town" -> City, "catagory" -> Category)
+        items = [((d.prop, lvl), d.level_name(lvl)) for d in cube.dimensions for lvl in d.levels]
+        items += [((d.prop, None), d.name) for d in cube.dimensions]
+        hit = semantic.SemanticIndex(items).match(semantic.phrases(" ".join(phrase)))
+        if hit:
+            self._note(hit)
+            return hit.key
         return None
 
     def _filters(self, cube: CubeInfo, q: str, axes: list[Axis]) -> list[Filter]:
@@ -201,6 +233,32 @@ class GroundedParser:
                     seen.add(key)
                     out.append(Filter(dprop, iri, lvl))
         return out[:3]
+
+    def _note(self, hit) -> None:
+        if hit.describe() not in self.last_trace.matches:
+            self.last_trace.matches.append(hit.describe())
+
+    def _semantic_cubes(self, question: str, exclude: str | None = None) -> list[str]:
+        """KGs whose vocabulary the question matches by meaning or spelling (no KG word in the question)."""
+        if not ANALYTIC.search(question):
+            return []  # not an analytic request ("who won the world cup?"): stay out of scope
+        # a KG is chosen by what is measured (its measures, fact class, name), never by a level alone
+        items = []
+        for c in (c for c in self.cat.cubes if c.kg != exclude):
+            items += [(c.kg, c.kg), (c.kg, c.label)] + [(c.kg, m.label) for m in c.measures]
+        index = semantic.SemanticIndex(items)
+        first = index.match(semantic.phrases(question))
+        if not first:
+            return []
+        self._note(first)
+        found = [first.key]
+        if identity_intent(question):  # a join needs a second KG
+            rest = {c.kg for c in self.cat.cubes} - {first.key}
+            second = index.match(semantic.phrases(question), keys=rest)
+            if second:
+                self._note(second)
+                found.append(second.key)
+        return found
 
     def _identity_dim(self, cube: CubeInfo):
         """The dimension whose members participate in the identity graph."""
@@ -223,7 +281,12 @@ class GroundedParser:
         if MUTATION_REQUEST.search(question):
             tr.intent = "mutation request (refused: the interface is read-only)"
             return ""
+        self._question = question
         kgs = mentioned_domains(question, self.cat)
+        if not kgs:
+            kgs = self._semantic_cubes(question)
+        elif len(kgs) == 1 and identity_intent(question) and len(self.cat.cubes) > 1:
+            kgs += self._semantic_cubes(question, exclude=kgs[0])[:1]  # "... and money sent, for customers in both"
         tr.cubes = kgs
         if not kgs:
             return ""  # out of scope: nothing in the catalogue matches

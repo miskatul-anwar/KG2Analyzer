@@ -130,20 +130,111 @@ class StructuralDecider:
         return self._result({"attribute": 0.1 if meta else 0.9, "metadata": 0.9 if meta else 0.1})
 
 
-def default_decider() -> Any:
-    """Tev1 unless ``KG2A_DECIDER=structural``."""
-    choice = os.environ.get("KG2A_DECIDER", "tev1").lower()
+DECIDERS = ("tev1", "structural")
+
+
+def tev1_available() -> bool:
+    """True when PyTorch and transformers are installed (``uv sync --extra tev1``)."""
+    import importlib.util
+
+    return all(importlib.util.find_spec(m) is not None for m in ("torch", "transformers"))
+
+
+def tev1_loaded() -> bool:
+    return bool(_DECIDERS)
+
+
+def preload_tev1() -> None:
+    """Load Tev1 in a background thread so the first Build does not wait for it (no-op without the extra)."""
+    if tev1_available() and not tev1_loaded():
+        threading.Thread(target=lambda: _safe(tev1_decider), name="tev1-preload", daemon=True).start()
+
+
+def _safe(fn) -> None:
+    try:
+        fn()
+    except Exception:  # noqa: BLE001 - surfaced again on the first real build
+        pass
+
+
+def cache_dir() -> Path:
+    d = Path(os.environ.get("KG2A_CACHE_DIR") or Path.home() / ".cache" / "kg2analyzer")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+class CachedDecider:
+    """Remembers every Tev1 answer on disk (keyed by question and profile), so building the same KGs again
+    takes seconds. Tev1 is deterministic for a given profile, so a cached answer is the answer it would give.
+    ``KG2A_TEV1_CACHE=off`` disables it."""
+
+    _lock = threading.Lock()
+
+    def __init__(self, inner: Any, path: Path | None = None):
+        self.inner = inner
+        self.model_id = getattr(inner, "model_id", type(inner).__name__)
+        self.path = path or cache_dir() / "tev1-decisions.json"
+        try:
+            self.memo: dict[str, dict] = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            self.memo = {}
+        self.hits = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    def _ask(self, fn: str, profile: dict, *a: Any) -> dict:
+        import hashlib
+
+        key = hashlib.sha256(json.dumps([self.model_id, fn, profile, a], sort_keys=True, default=str).encode()).hexdigest()
+        with self._lock:
+            hit = self.memo.get(key)
+        if hit is not None:
+            self.hits += 1
+            return json.loads(json.dumps(hit))
+        res = getattr(self.inner, fn)(profile, *a)
+        with self._lock:
+            self.memo[key] = json.loads(json.dumps(res, default=float))
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(self.memo), encoding="utf-8")
+            tmp.replace(self.path)
+        return res
+
+    def decide(self, profile: dict) -> dict:
+        return self._ask("decide", profile)
+
+    def decide_aggregate(self, profile: dict) -> dict:
+        return self._ask("decide_aggregate", profile)
+
+    def decide_unit_property(self, profile: dict, threshold: float | None = None) -> dict:
+        return self._ask("decide_unit_property", profile, threshold)
+
+    def decide_level_attribute(self, profile: dict) -> dict:
+        return self._ask("decide_level_attribute", profile)
+
+
+class DeciderUnavailable(ValueError):
+    """Tev1 was asked for but PyTorch/transformers are not installed."""
+
+
+def resolve_decider(name: str | None = None) -> Any:
+    """``tev1`` (the KG2MD model, cached answers) or ``structural`` (the stand-in, not Tev1).
+    ``None`` reads ``KG2A_DECIDER`` (default tev1)."""
+    choice = (name or os.environ.get("KG2A_DECIDER", "tev1")).lower()
     if choice == "structural":
         return StructuralDecider()
     if choice != "tev1":
-        raise ValueError("KG2A_DECIDER must be tev1 or structural")
-    try:
-        return tev1_decider()
-    except ImportError as e:
-        raise RuntimeError(
-            "KG2MD decides with Tev1, which needs PyTorch and transformers: run `uv sync --extra tev1` "
-            "(the model, about 1.8 GB, downloads on first use). To build without Tev1 for testing, set "
-            "KG2A_DECIDER=structural (not the KG2MD decision model).") from e
+        raise ValueError("the decider must be tev1 or structural")
+    if not tev1_available():
+        raise DeciderUnavailable(
+            "Tev1 needs PyTorch and transformers: run `uv sync --extra tev1` (the model, about 1.8 GB, downloads "
+            "on first use). Or switch Tev1 off to build with the structural stand-in (not the KG2MD decision model).")
+    inner = tev1_decider()
+    return inner if os.environ.get("KG2A_TEV1_CACHE", "on").lower() in ("off", "0", "false", "no") else CachedDecider(inner)
+
+
+def default_decider() -> Any:
+    return resolve_decider(None)
 
 
 # ------------------------------------------------------------------ one run

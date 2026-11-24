@@ -4,7 +4,11 @@ import { api, type CatalogCube, type Ws } from "./client";
 
 // Store-derived data only changes after a mutation, which invalidates its workspace: never refetch on a timer.
 const forever = { staleTime: Infinity, gcTime: Infinity } as const;
-export const useStatus = (ws: Ws) => useQuery({ queryKey: [ws, "status"], queryFn: () => api.status(ws), ...forever });
+export const useStatus = (ws: Ws) => useQuery({
+  queryKey: [ws, "status"], queryFn: () => api.status(ws), ...forever,
+  // while Tev1 or the embedding model is still loading in the background, look again every few seconds
+  refetchInterval: (q) => (q.state.data && ((q.state.data.tev1_available && !q.state.data.tev1_loaded) || q.state.data.embeddings.includes("loading")) ? 3000 : false),
+});
 export const useCatalog = (ws: Ws) =>
   useQuery({ queryKey: [ws, "catalog"], queryFn: () => api.catalog(ws).then((c) => { registerNames(c); return c; }), ...forever });
 export const useMdkgs = (ws: Ws) => useQuery({ queryKey: [ws, "mdkgs"], queryFn: () => api.mdkgs(ws), ...forever });

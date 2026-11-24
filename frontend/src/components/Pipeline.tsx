@@ -4,7 +4,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { PiDatabaseDuotone, PiTreeStructureDuotone } from "react-icons/pi";
 import { TbFileZip, TbPlus, TbSettings, TbTrash, TbUpload, TbX } from "react-icons/tb";
 import { api, type PipelineReport } from "@/api/client";
-import { useRefreshStore } from "@/api/hooks";
+import { useRefreshStore, useStatus } from "@/api/hooks";
 import { ShimmerButton } from "@/components/fx";
 import { ErrorBox } from "@/components/kit";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useUi } from "@/store";
 
 const RDF = /\.(ttl|nt|n3|rdf|owl|xml|jsonld|json-ld|nq|trig)$/i;
 const ROLE_SUFFIX = /[-_. ]*(tbox|abox|schema|ontology|onto|data|instances|kg)$/i;
@@ -51,6 +53,11 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
   const [threshold, setThreshold] = useState(0.6);
   const bulk = useRef<HTMLInputElement>(null);
   const refresh = useRefreshStore("build");
+  const { data: st } = useStatus("build");
+  const pref = useUi((s) => s.useTev1);
+  const setPref = useUi((s) => s.setUseTev1);
+  const tev1Installed = st?.tev1_available ?? false;
+  const tev1 = tev1Installed && (pref ?? true);
 
   const ready = rows.filter(filled);
   const incomplete = ready.filter((r) => !r.both.length && (!r.tbox.length || !r.abox.length));
@@ -70,6 +77,7 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
       fd.append("auto_link", String(autoLink));
       fd.append("threshold", String(threshold));
       fd.append("reset", String(replace));
+      fd.append("decider", tev1 ? "tev1" : "structural");
       return api.pipeline(fd);
     },
     onSuccess: (r) => { setRows([newRow()]); setExtras([]); void refresh(); onDone?.(r); },
@@ -145,7 +153,22 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
         <ShimmerButton disabled={!canBuild || run.isPending} onClick={() => run.mutate()}>
           {run.isPending ? "Building…" : extras.some((f) => /\.zip$/i.test(f.name)) ? "Build MDKGs" : `Build ${ready.length || ""} MDKG${ready.length === 1 ? "" : "s"}`}
         </ShimmerButton>
-        {run.isPending && <span className="text-xs text-ink-3">running the KG2MD notebook (Tev1 decisions · Otsu · hierarchies · QB4OLAP · audit), then linking. With Tev1 on a CPU this takes about a minute per KG.</span>}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm">
+              <Switch id="tev1" checked={tev1} disabled={!tev1Installed || run.isPending} onCheckedChange={setPref} />
+              <Label htmlFor="tev1" className={clsx(!tev1Installed && "text-ink-3")}>Tev1</Label>
+              <span className="text-xs text-ink-3">{!tev1Installed ? "not installed" : tev1 ? (st?.tev1_loaded ? "ready" : "loading…") : "off · structural"}</span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            {tev1Installed
+              ? tev1 ? "KG2MD's decision model answers the fact-class, aggregate, unit and level-attribute questions. Answers are cached, so rebuilding the same KGs is quick."
+                : "Off: the structural stand-in decides from the class structure and property names in milliseconds. Results are marked “not Tev1”."
+              : "Install Tev1 with `uv sync --extra tev1` (PyTorch + transformers; the model downloads on first use). Until then, builds use the structural stand-in."}
+          </TooltipContent>
+        </Tooltip>
+        {run.isPending && <span className="text-xs text-ink-3">running the KG2MD notebook ({tev1 ? "Tev1 decisions" : "structural decisions"} · Otsu · hierarchies · QB4OLAP · audit), then linking.{tev1 && " With Tev1 on a CPU, a new KG takes up to a minute."}</span>}
         {!run.isPending && incomplete.length > 0 && <span className="text-xs text-warn">{incomplete.map((r) => r.name || "a KG").join(", ")}: add both a TBox and an ABox</span>}
         {!run.isPending && unnamed.length > 0 && <span className="text-xs text-warn">Name every knowledge graph</span>}
         <button className="ml-auto inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink" onClick={() => setShowOptions(!showOptions)}>

@@ -59,12 +59,12 @@ def domain_keywords(cat: Catalog) -> dict[str, set[str]]:
     raw: dict[str, set[str]] = {}
     for c in cat.cubes:
         words = set(tokens(c.kg)) | {c.kg.lower()} | set(tokens(local_name(c.fact_class)))
-        for m in c.measures:
-            words |= set(tokens(local_name(m.iri)))
+        for m in c.measures:  # IRI names and display names (KG2MD notebook IRIs carry hashes)
+            words |= set(tokens(local_name(m.iri))) | set(tokens(m.label))
         for d in c.dimensions:
-            words |= set(tokens(local_name(d.prop)))
+            words |= set(tokens(local_name(d.prop))) | set(tokens(d.name))
             for lvl in d.levels:
-                words |= set(tokens(local_name(lvl)))
+                words |= set(tokens(local_name(lvl))) | set(tokens(d.level_name(lvl)))
         raw[c.kg] = {w for w in words if len(w) > 3 and w not in STOP}
     # keep only words unique to one domain (plus the domain name itself)
     out = {}

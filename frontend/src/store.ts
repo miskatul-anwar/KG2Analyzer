@@ -36,6 +36,12 @@ interface UiState {
   pushAnswer: (a: Answer) => void;
   clearChat: () => void;
   resetForNewData: () => void;
+  /** Build: decide with Tev1 (true) or the structural stand-in (false). null = Tev1 when installed. */
+  useTev1: boolean | null;
+  setUseTev1: (v: boolean) => void;
+  /** Ask: try the LLM first (true) or only the grounded parser with embeddings (false). */
+  useLlm: boolean;
+  setUseLlm: (v: boolean) => void;
 }
 
 const safeStorage = createJSONStorage(() => {
@@ -67,6 +73,10 @@ export const useUi = create<UiState>()(
       pushAnswer: (a) => set((s) => ({ chat: [...s.chat, a].slice(-30) })),
       clearChat: () => set({ chat: [] }),
       resetForNewData: () => set({ query: EMPTY_QUERY, openKg: "", chat: [] }),
+      useTev1: null,
+      setUseTev1: (useTev1) => set({ useTev1 }),
+      useLlm: false,
+      setUseLlm: (useLlm) => set({ useLlm }),
     }),
     { name: "kg2analyzer-ui", version: 1, storage: safeStorage },
   ),

@@ -67,6 +67,7 @@ class NLInterface:
         self.parser = GroundedParser(cat, store)
         self.translator = translator or self.parser
         self.validator = Validator(cat, node_exists=self._node_exists)
+        self._answers: dict[str, Answer] = {}
 
     def _node_exists(self, iri: str) -> bool:
         from rdflib import URIRef
@@ -90,6 +91,22 @@ class NLInterface:
         return Attempt(translator.name, raw, sparql, self.validator.validate(sparql, question))
 
     def ask(self, question: str) -> Answer:
+        """Answer a question (answers are remembered until the loaded MDKGs or the translator change)."""
+        import copy
+
+        t0 = time.perf_counter()
+        key = " ".join(question.lower().split())
+        if key in self._answers:
+            ans = copy.deepcopy(self._answers[key])
+            ans.question, ans.seconds = question, time.perf_counter() - t0
+            ans.trace = {**ans.trace, "cached": True}
+            return ans
+        ans = self._ask(question)
+        if ans.status in ("executed", "fallback", "rejected"):
+            self._answers[key] = copy.deepcopy(ans)
+        return ans
+
+    def _ask(self, question: str) -> Answer:
         t0 = time.perf_counter()
         ans = Answer(question, "rejected")
         feedback = ""

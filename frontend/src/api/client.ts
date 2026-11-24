@@ -9,6 +9,10 @@ export interface Status {
   identity_links: number;
   translator: string;
   decider: string;
+  tev1_available: boolean;
+  tev1_loaded: boolean;
+  embeddings: string;
+  llm: { server: string; model: string; reachable: boolean };
 }
 
 export interface CatalogMeasure { iri: string; label: string; aggregate: string; additivity: string; unit: string | null; source: string | null; alias: string }
@@ -88,7 +92,8 @@ export interface Answer {
   question: string; status: "executed" | "fallback" | "rejected" | "error"; sparql: string; columns: string[]; rows: Row[];
   insight: string; seconds: number;
   attempts: { translator: string; sparql: string; ok: boolean; checks: Check[] }[];
-  trace: { cubes?: string[]; measures?: string[]; aggregate?: string | null; group_by?: string[]; filters?: string[]; intent?: string };
+  trace: { cubes?: string[]; measures?: string[]; aggregate?: string | null; group_by?: string[]; filters?: string[]; intent?: string;
+    matches?: string[]; cached?: boolean };
 }
 
 export interface SparqlResult { columns: string[]; rows: Row[]; seconds: number }

@@ -85,8 +85,31 @@ def status(a: KG2Analyzer = W):
     def f():
         return ok({"kgs": list(a.store.sources), "graphs": a.store.graph_stats(),
                    "cubes": len(a.catalog.cubes), "identity_links": len(a.store.identity),
-                   "translator": a.nl.translator.name, "decider": _decider_name(a)})
+                   "translator": a.nl.translator.name, "decider": _decider_name(a), **_engines()})
     return guarded(a, f)
+
+
+def _engines() -> dict:
+    """What can run here: Tev1 (installed? loaded?), the embedding model, the LLM server."""
+    from kg2analyzer.kg2md.notebook import tev1_available, tev1_loaded
+    from kg2analyzer.nl.semantic import embedding_backend
+    from kg2analyzer.nl.translators import llm_available
+
+    return {"tev1_available": tev1_available(), "tev1_loaded": tev1_loaded(),
+            "embeddings": embedding_backend(), "llm": llm_available()}
+
+
+@app.on_event("startup")
+def _warm_up() -> None:
+    """Load Tev1 and the embedding model in the background so the first build/question does not wait."""
+    if os.environ.get("KG2A_PRELOAD", "1") != "0":
+        from kg2analyzer.kg2md.notebook import preload_tev1
+        from kg2analyzer.nl.semantic import _model
+
+        def warm():  # one after the other: importing torch and model2vec concurrently can fail
+            _model()
+            preload_tev1()
+        threading.Thread(target=warm, name="warm-up", daemon=True).start()
 
 
 def _decider_name(a: KG2Analyzer) -> str:
@@ -333,7 +356,8 @@ async def sparql_source(kg: str, request: Request, a: KG2Analyzer = W):
 # ------------------------------------------------------------------ batch pipeline: KGs -> MDKGs
 @app.post("/api/pipeline")
 async def pipeline(files: list[UploadFile] = File(...), auto_link: bool = Form(True), threshold: float = Form(0.6),
-                   reset: bool = Form(True), max_facts: int | None = Form(None), a: KG2Analyzer = W):
+                   reset: bool = Form(True), max_facts: int | None = Form(None),
+                   decider: str | None = Form(None, description="tev1 | structural (Tev1 switched off)"), a: KG2Analyzer = W):
     """Upload a set of raw KGs (files, TBox/ABox pairs, zips, owl:sameAs files): build every MDKG and link them."""
     from kg2analyzer.ingest import RdfFile
 
@@ -341,7 +365,8 @@ async def pipeline(files: list[UploadFile] = File(...), auto_link: bool = Form(T
 
     batch = [RdfFile(f.filename or "kg.ttl", await f.read()) for f in files]
     return await run_in_threadpool(guarded, a, lambda: ok(a.ingest(batch, auto_link=auto_link, link_threshold=threshold,
-                                                                    reset=reset, max_facts=max_facts or None)))
+                                                                    reset=reset, max_facts=max_facts or None,
+                                                                    decider=decider or None)))
 
 
 @app.post("/api/mdkgs")

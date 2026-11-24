@@ -9,7 +9,8 @@ Monorepo: `backend/` (FastAPI + the `kg2analyzer` Python package) and `frontend/
   - `mdkg_files.py` reads the notebook's output folders; the catalogue reads its QB4OLAP layout (`catalog._notebook_cubes`).
   - The built-in engine `kg2md/` (`run_kg2md`: profiling + Otsu, measures + SHAP/LIME, ADW4 hierarchies) stays for the thesis-table tests (`load_kg`, `engine="builtin"`).
   - Phase II `store.py`, `catalog.py`, `planner.py`, `olap.py`; graph analytics `graphml.py`, `linking.py`
-  - Phase III `nl/` (validator, translators, interface)
+  - Phase III `nl/` (validator, translators, interface; `semantic.py` is the embedding/spelling matcher the grounded parser falls back to when exact words miss)
+- Speed for demos: Tev1 answers are cached on disk (`CachedDecider`, `KG2A_CACHE_DIR`), Tev1 and the embedding model preload at server start (`KG2A_PRELOAD=0` disables), and `NLInterface` remembers answers until the MDKGs or translator change.
 - Tev1 needs `uv sync --extra tev1`. Tests set `KG2A_DECIDER=structural` (tests/conftest.py), the structural stand-in at the decider seam; `tests/test_tev1.py` runs real Tev1 with `KG2A_TEST_TEV1=1`. Never present stand-in results as Tev1.
 - `models/*.joblib` are the built-in engine's measure classifiers; `kg2md/features.py` must stay compatible with how they were trained (keep its tag join sorted: unsorted set order made results depend on the hash seed).
 - Input is a *set* of raw KGs, each with a **TBox and an ABox**: `ingest.py` assigns files to KGs and roles (explicit `<kg>/tbox|abox/` paths, name patterns, or a content split of combined files) and `KG2Analyzer.ingest` builds one MDKG per KG (`build_mdkg` → `run_notebook(tbox, abox)`) and auto-links them.
