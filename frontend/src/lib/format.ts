@@ -16,7 +16,7 @@ export function registerNames(cat: { cubes: { measures: { iri: string; label: st
 
 export const localName = (iri: unknown): string => {
   const s = String(iri ?? "");
-  if (!s.startsWith("http")) return s;
+  if (!s.startsWith("http")) return s.replace(SUFFIX, "") || s;
   const known = NAMES.get(s);
   if (known) return known;
   const n = s.split(/[#/]/).pop() ?? s;

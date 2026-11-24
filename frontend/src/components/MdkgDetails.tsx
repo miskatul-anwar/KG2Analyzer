@@ -18,6 +18,7 @@ export function MdkgDetails({ kg }: { kg: string }) {
   if (error) return <ErrorBox error={error} />;
   if (!r) return null;
   const tau = r.otsu_threshold;
+  const who = r.decider.includes("not Tev1") ? (r.decider.startsWith("ML") ? "the ML classifiers" : "the rules") : "Tev1";
   return (
     <div className="flex min-w-0 flex-col gap-4">
       <Card title={`Fact classes · ${r.decider.includes("not Tev1") ? "ML classifiers" : "Tev1"} + Otsu`}
@@ -62,12 +63,12 @@ export function MdkgDetails({ kg }: { kg: string }) {
             <Kpi value={pct(c.audit.measure_fidelity)} label={`measure fidelity · ${c.audit.measure_cells_checked} cells`} tone={c.audit.measure_fidelity === 1 ? "good" : "bad"} />
             <Kpi value={`${c.audit.ghost_observations ?? "—"} / ${c.audit.dropped_facts ?? "—"}`} label="ghost / dropped" />
           </div>
-          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Measures · aggregate chosen by Tev1 (additivity follows)</h4>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3">Measures · aggregate chosen by {who} (additivity follows)</h4>
           <DataTable rows={c.measures} columns={[
             { key: "name", header: "measure", render: (m) => <span className="font-medium">{m.name}</span> },
             { key: "aggregate", header: "aggregate", render: (m) => <span className="mono">qb4o:{m.aggregate}</span> },
             { key: "additivity", header: "additivity", render: (m) => <Chip tone={m.additivity === "additive" ? "good" : "warn"}>{m.additivity}</Chip> },
-            { key: "decision", header: "Tev1 probabilities", render: (m) => m.decision
+            { key: "decision", header: `${who} probabilities`, render: (m) => m.decision
               ? <div className="flex flex-wrap gap-1">{Object.entries(m.decision.probabilities).sort((a, b) => b[1] - a[1]).map(([k, v]) =>
                   <Chip key={k} tone={k === m.aggregate ? "accent" : undefined}>{k} {(v * 100).toFixed(0)}%</Chip>)}</div>
               : <span className="text-ink-3">{m.source ? "declared qb4o:aggregateFunction" : "synthetic count"}</span> },
