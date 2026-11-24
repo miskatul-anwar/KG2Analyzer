@@ -87,3 +87,22 @@ def test_reset_all_returns_every_section_to_empty():
         st = c.get("/api/status", params={"ws": ws}).json()
         assert st["kgs"] == [] and st["cubes"] == 0 and st["identity_links"] == 0, ws
     assert c.get("/api/overview").json()["kgs"] == []
+
+
+def test_query_and_ask_can_take_the_mdkgs_built_in_build_without_files():
+    from fastapi.testclient import TestClient
+
+    from kg2analyzer import server
+
+    c = TestClient(server.app)
+    c.post("/api/reset-all")
+    assert c.post("/api/mdkgs/from-build", params={"ws": "query"}).status_code == 400  # nothing built yet
+    files = [("files", (str(p.relative_to(TINY)), p.read_bytes(), "text/turtle")) for p in sorted(TINY.rglob("*.ttl"))]
+    assert c.post("/api/pipeline", data={"reset": "true", "decider": "structural"}, files=files).status_code == 200
+    for ws in ("query", "ask"):
+        r = c.post("/api/mdkgs/from-build", params={"ws": ws})
+        assert r.status_code == 200, r.text
+        assert sorted(m["kg"] for m in r.json()["mdkgs"]) == ["bank", "shop"]
+        assert r.json()["identity"]["total_links"] == 2  # Alice and Dhaka, as linked in Build
+    a = c.post("/api/ask", params={"ws": "ask"}, json={"question": "Total transfer amount by branch"}).json()
+    assert {r["branch_label"]: r["total"] for r in a["rows"]} == {"Gulshan": 5000.0, "Agrabad": 325.0}

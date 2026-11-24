@@ -30,7 +30,7 @@ async function save(kgs: string[]) {
 
 function announce(r: PipelineReport, all: string[]) {
   toast.success(`Built ${r.kgs.length} MDKG${r.kgs.length === 1 ? "" : "s"} in ${r.seconds.total}s`, {
-    description: r.identity.auto_link ? `${r.identity.links_added} identity link${r.identity.links_added === 1 ? "" : "s"} discovered · ${r.identity.clusters} shared entities` : undefined,
+    description: `Ready in Query and Ask.${r.identity.auto_link ? ` ${r.identity.links_added} identity link${r.identity.links_added === 1 ? "" : "s"} discovered · ${r.identity.clusters} shared entities.` : ""}`,
     action: { label: "Save", onClick: () => void save(all.length ? all : r.kgs.map((k) => k.kg)) },
     duration: 10000,
   });

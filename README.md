@@ -25,8 +25,8 @@ Python tooling is [uv](https://docs.astral.sh/uv/): `backend/pyproject.toml` + `
    <kg>/fact_classes/<FactClass>_<hash>/mdkg_schema.ttl · mdkg_data.ttl · mdkg_dataset.nq
    identity.ttl
    ```
-2. **Query**: load the MDKG folders you want, then query them (roll-up, slice, cross-MDKG joins, SPARQL).
-3. **Ask**: load MDKG folders (its own selection) and ask in plain language.
+2. **Query**: query the MDKGs (roll-up, slice, cross-MDKG joins, SPARQL). After a build they are already there; you can also load saved MDKG folders instead.
+3. **Ask**: ask in plain language, over the MDKGs just built or over saved folders you load (its own selection).
 
 Folders written by the notebook on its own (`output_ml/`, e.g. from `run.sh` on a GPU server) load the same way.
 

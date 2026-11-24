@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useRef, useState, type DragEvent } from "react";
 import { PiDatabaseDuotone, PiTreeStructureDuotone } from "react-icons/pi";
@@ -53,6 +53,7 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
   const [threshold, setThreshold] = useState(0.6);
   const bulk = useRef<HTMLInputElement>(null);
   const refresh = useRefreshStore("build");
+  const qc = useQueryClient();
   const { data: st } = useStatus("build");
   const pref = useUi((s) => s.useTev1);
   const setPref = useUi((s) => s.setUseTev1);
@@ -80,7 +81,13 @@ export function Pipeline({ replace, hero, onDone }: { replace: boolean; hero?: b
       fd.append("decider", tev1 ? "tev1" : "structural");
       return api.pipeline(fd);
     },
-    onSuccess: (r) => { setRows([newRow()]); setExtras([]); void refresh(); onDone?.(r); },
+    onSuccess: async (r) => {
+      setRows([newRow()]); setExtras([]); void refresh(); onDone?.(r);
+      // hand the new MDKGs to Query and Ask straight away (as the files Build saves; nothing to pick)
+      await Promise.allSettled((["query", "ask"] as const).map((ws) => api.fromBuild(ws)));
+      void qc.invalidateQueries({ queryKey: ["query"] });
+      void qc.invalidateQueries({ queryKey: ["ask"] });
+    },
   });
 
   /** Bulk drop: assign each file to a KG row and a role by its name/folder. */

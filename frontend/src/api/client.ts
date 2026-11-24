@@ -174,6 +174,8 @@ export const api = {
   // Query / Ask: load saved MDKG files, then analyse them
   loadMdkgs: (ws: Ws, form: FormData) => upload<MdkgLoadReport>(ws, "/api/mdkgs", form),
   mdkgs: (ws: Ws) => get<MdkgList>(ws, "/api/mdkgs"),
+  /** Load the MDKGs currently built in Build into Query or Ask (no files to pick). */
+  fromBuild: (ws: Exclude<Ws, "build">) => post<MdkgLoadReport>(ws, "/api/mdkgs/from-build", {}),
   olap: (body: { kg: string; measure: string; group_by: [string, string | null][]; filters: [string, string, string | null][]; aggregate: string | null }) =>
     post<OlapResult>("query", "/api/olap", body),
   compare: (body: { left: [string, string, string]; right: [string, string, string]; link: string }) =>

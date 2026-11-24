@@ -394,6 +394,24 @@ async def load_mdkgs(files: list[UploadFile] = File(...), auto_link: bool = Form
                                                                         link_threshold=threshold, reset=reset)))
 
 
+@app.post("/api/mdkgs/from-build")
+def mdkgs_from_build(a: KG2Analyzer = W):
+    """Load the MDKGs currently built in Build into this workspace (Query or Ask), replacing what it had.
+
+    They arrive as the files Build would save (the KG2MD output folders plus identity.ttl), read by the
+    same ``load_mdkgs``, so the sections still share files, not state (ADR 0007)."""
+    from kg2analyzer.ingest import RdfFile
+
+    build = WORKSPACES["build"]
+    if a is build:
+        raise HTTPException(400, "choose the Query or Ask workspace (?ws=query or ?ws=ask)")
+    files = guarded(build, build.mdkg_files)
+    if not any(p != "identity.ttl" for p in files):
+        raise HTTPException(400, "Build has no MDKGs yet: build them in step 1 first.")
+    batch = [RdfFile(p, b) for p, b in files.items()]
+    return guarded(a, lambda: ok(a.load_mdkgs(batch, auto_link="identity.ttl" not in files, reset=True)))
+
+
 @app.get("/api/mdkgs")
 def list_mdkgs(a: KG2Analyzer = W):
     return guarded(a, lambda: ok({"mdkgs": a.loaded_mdkgs(), "identity_links": len(a.store.identity) // 2,
